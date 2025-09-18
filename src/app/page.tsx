@@ -58,7 +58,7 @@ interface JobResult {
       valve_name: string;
       count: number;
     }>;
-    processing_info: any;
+    processing_info: string;
   };
   error?: string;
 }
