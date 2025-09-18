@@ -1,291 +1,237 @@
-// app/page.tsx
 'use client'
-
-import { useState, useRef, useCallback, useEffect } from 'react'
+import React from 'react'
+import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Upload, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Upload, Download, CheckCircle, Clock, AlertCircle } from 'lucide-react'
+import useSWR from 'swr'
+import { Viewer, Worker } from '@react-pdf-viewer/core'
+import '@react-pdf-viewer/core/lib/styles/index.css'
+import '@react-pdf-viewer/default-layout/lib/styles/index.css'
 
-// Types for PDF.js (you might want to install @types/pdfjs-dist)
-declare global {
-  interface Window {
-    pdfjsLib: any;
+// Job Status Enum matching backend
+enum JobStatus {
+  PENDING = "pending",
+  PROCESSING = "processing", 
+  PDF_PROCESSED = "pdf_processed",
+  COUNTING = "counting",
+  COMPLETED = "completed",
+  FAILED = "failed"
+}
+
+// API Response Types
+interface JobResponse {
+  job_id: string;
+  status: JobStatus;
+  created_at: string;
+  message: string;
+}
+
+interface JobResult {
+  job_id: string;
+  status: JobStatus;
+  created_at: string;
+  completed_at?: string;
+  detected_pdf_url?: string;
+  result?: {
+    status: string;
+    filename: string;
+    detected_pdf_url: string;
+    valve_counts: {
+      total_detections: number;
+      ball_valve_vb: number;
+      check_valve_vc: number;
+      gate_valve_vg: number;
+      globe_valve_vgl: number;
+      pcv: number;
+      tcv: number;
+      bdv: number;
+      sdv: number;
+      fcv: number;
+      psv: number;
+      lcv: number;
+    };
+    valve_sizes: Array<{
+      size_inches: string;
+      valve_name: string;
+      count: number;
+    }>;
+    processing_info: any;
+  };
+  error?: string;
+}
+
+// Processing Stage Info
+interface ProcessingStage {
+  id: string;
+  title: string;
+  description: string;
+  status: 'pending' | 'active' | 'completed' | 'error';
+}
+
+// API Configuration
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
+// SWR Fetcher function
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
+// Custom hooks for API calls
+const useJobStatus = (jobId: string | null, interval: number = 2000) => {
+  const { data, error, isLoading } = useSWR(
+    jobId ? `${API_BASE_URL}/jobs/${jobId}` : null,
+    fetcher,
+    {
+      refreshInterval: interval,
+      revalidateOnFocus: false,
+    }
+  );
+  
+  return {
+    job: data as JobResult | undefined,
+    isLoading,
+    error
+  };
+};
+
+// Helper function to upload file
+const uploadFile = async (file: File): Promise<JobResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await fetch(`${API_BASE_URL}/detect-valves`, {
+    method: 'POST',
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Upload failed: ${response.statusText}`);
   }
-}
+  
+  return response.json();
+};
 
-interface PDFMetadata {
-  fileName: string;
-  totalPages: number;
-  currentPage: number;
-  metadata: any;
-}
+// Helper function to get processing stages
+const getProcessingStages = (currentStatus: JobStatus): ProcessingStage[] => {
+  const stages: ProcessingStage[] = [
+    {
+      id: 'upload',
+      title: 'PDF Upload',
+      description: 'Uploading and validating PDF file',
+      status: 'completed'
+    },
+    {
+      id: 'detection',
+      title: 'Valve Detection',
+      description: 'Detecting valves in PDF pages',
+      status: 'pending'
+    },
+    {
+      id: 'counting',
+      title: 'Valve Analysis',
+      description: 'Counting and sizing valves',
+      status: 'pending'
+    }
+  ];
 
-interface PDFState {
-  doc: any;
-  pageNum: number;
-  pageRendering: boolean;
-  pageNumPending: number | null;
-  currentZoomScale: number;
-  pageRenderCache: Map<string, ImageBitmap>;
-}
+  // Update stages based on current status
+  switch (currentStatus) {
+    case JobStatus.PENDING:
+    case JobStatus.PROCESSING:
+      stages[1].status = 'active';
+      break;
+    case JobStatus.PDF_PROCESSED:
+      stages[1].status = 'completed';
+      stages[2].status = 'active';
+      break;
+    case JobStatus.COUNTING:
+      stages[1].status = 'completed';
+      stages[2].status = 'active';
+      break;
+    case JobStatus.COMPLETED:
+      stages[1].status = 'completed';
+      stages[2].status = 'completed';
+      break;
+    case JobStatus.FAILED:
+      stages[1].status = 'error';
+      break;
+    default:
+      break;
+  }
 
-const BASE_RENDER_SCALE = 0.5;
-const ZOOM_STEP = 0.25;
-const MIN_ZOOM_SCALE = 0.5;
-const MAX_ZOOM_SCALE = 3.0;
-const PRELOAD_OFFSET = 2;
+  return stages;
+};
 
 export default function PDFViewerPage() {
-  const [pdfMetadata, setPdfMetadata] = useState<PDFMetadata>({
-    fileName: 'N/A',
-    totalPages: 0,
-    currentPage: 1,
-    metadata: null
-  });
-
-  const [pdfState, setPdfState] = useState<PDFState>({
-    doc: null,
-    pageNum: 1,
-    pageRendering: false,
-    pageNumPending: null,
-    currentZoomScale: 0.5,
-    pageRenderCache: new Map()
-  });
-
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [scrollStart, setScrollStart] = useState({ left: 0, top: 0 });
+  const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [fileName, setFileName] = useState<string>('N/A');
   
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize PDF.js
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
-    script.onload = () => {
-      if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-      }
-    };
-    document.head.appendChild(script);
+  // Use SWR to fetch job status
+  const { job, isLoading: jobIsLoading, error: jobError } = useJobStatus(currentJobId);
 
-    return () => {
-      document.head.removeChild(script);
-    };
-  }, []);
+  // Get processing stages
+  const processingStages = job ? getProcessingStages(job.status) : [];
 
-  const renderPage = useCallback(async (num: number) => {
-    if (!pdfState.doc || !canvasRef.current) return;
+  // Helper function to convert File to URL
+  const fileToUrl = (file: File): string => {
+    return URL.createObjectURL(file);
+  };
 
-    const cacheKey = `${num}-${pdfState.currentZoomScale.toFixed(2)}`;
-    
-    setPdfState(prev => ({ ...prev, pageRendering: true, pageNum: num }));
-    setPdfMetadata(prev => ({ ...prev, currentPage: num }));
-
-    const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
-    if (!context) return;
-
-    try {
-      // Check cache first
-      if (pdfState.pageRenderCache.has(cacheKey)) {
-        const imageBitmap = pdfState.pageRenderCache.get(cacheKey);
-        if (imageBitmap) {
-          const page = await pdfState.doc.getPage(num);
-          const viewport = page.getViewport({ scale: BASE_RENDER_SCALE * pdfState.currentZoomScale });
-          
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          
-          context.clearRect(0, 0, canvas.width, canvas.height);
-          context.drawImage(imageBitmap, 0, 0, canvas.width, canvas.height);
-          
-          setPdfState(prev => ({ ...prev, pageRendering: false }));
-          return;
-        }
-      }
-
-      // Render fresh
-      const page = await pdfState.doc.getPage(num);
-      const viewport = page.getViewport({ scale: BASE_RENDER_SCALE * pdfState.currentZoomScale });
-
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-
-      context.clearRect(0, 0, canvas.width, canvas.height);
-
-      const renderContext = {
-        canvasContext: context,
-        viewport: viewport,
-      };
-
-      await page.render(renderContext).promise;
-
-      // Cache the result
-      const imageBitmap = await createImageBitmap(canvas);
-      const newCache = new Map(pdfState.pageRenderCache);
-      newCache.set(cacheKey, imageBitmap);
-      
-      setPdfState(prev => ({ 
-        ...prev, 
-        pageRendering: false,
-        pageRenderCache: newCache 
-      }));
-
-    } catch (error) {
-      console.error('Error rendering page:', error);
-      setPdfState(prev => ({ ...prev, pageRendering: false }));
-    }
-  }, [pdfState.doc, pdfState.currentZoomScale, pdfState.pageRenderCache]);
-
-  const loadPDF = useCallback(async (file: File) => {
-    if (!window.pdfjsLib) {
-      alert('PDF.js is not loaded yet. Please try again in a moment.');
-      return;
-    }
-
-    // Reset state
-    setPdfState({
-      doc: null,
-      pageNum: 1,
-      pageRendering: false,
-      pageNumPending: null,
-      currentZoomScale: 0.5,
-      pageRenderCache: new Map()
-    });
-
-    setPdfMetadata({
-      fileName: 'Loading...',
-      totalPages: 0,
-      currentPage: 1,
-      metadata: null
-    });
-
-    // Clear canvas
-    if (canvasRef.current) {
-      const context = canvasRef.current.getContext('2d');
-      if (context) {
-        context.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        canvasRef.current.width = 0;
-        canvasRef.current.height = 0;
-      }
-    }
-
-    // Reset scroll
-    if (containerRef.current) {
-      containerRef.current.scrollTop = 0;
-      containerRef.current.scrollLeft = 0;
-    }
-
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const typedArray = new Uint8Array(arrayBuffer);
-      const pdfDoc = await window.pdfjsLib.getDocument(typedArray).promise;
-      
-      const metadata = await pdfDoc.getMetadata();
-      
-      setPdfMetadata({
-        fileName: file.name,
-        totalPages: pdfDoc.numPages,
-        currentPage: 1,
-        metadata: metadata.info
-      });
-
-      setPdfState(prev => ({ ...prev, doc: pdfDoc }));
-      
-      // Render first page
-      setTimeout(() => renderPage(1), 100);
-
-    } catch (error) {
-      console.error('Error loading PDF:', error);
-      alert('Failed to load PDF. Please ensure it is a valid PDF file.');
-      setPdfMetadata({
-        fileName: 'Error!',
-        totalPages: 0,
-        currentPage: 1,
-        metadata: null
-      });
-    }
-  }, [renderPage]);
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.type === 'application/pdf') {
-      loadPDF(file);
-    } else {
-      alert('Please upload a valid PDF file.');
+    if (!file) return;
+
+    if (!file.type.includes('pdf')) {
+      setUploadError('Please upload a valid PDF file.');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+      return;
     }
-  };
 
-  const navigatePage = (direction: 'prev' | 'next') => {
-    if (!pdfState.doc) return;
+    setUploadError(null);
+    setIsUploading(true);
     
-    const newPageNum = direction === 'prev' 
-      ? Math.max(1, pdfState.pageNum - 1)
-      : Math.min(pdfMetadata.totalPages, pdfState.pageNum + 1);
-    
-    if (newPageNum !== pdfState.pageNum) {
-      renderPage(newPageNum);
-    }
-  };
-
-  const handleZoom = (direction: 'in' | 'out') => {
-    if (!pdfState.doc) return;
-
-    const newScale = direction === 'in'
-      ? Math.min(MAX_ZOOM_SCALE, pdfState.currentZoomScale + ZOOM_STEP)
-      : Math.max(MIN_ZOOM_SCALE, pdfState.currentZoomScale - ZOOM_STEP);
-
-    if (newScale !== pdfState.currentZoomScale) {
-      setPdfState(prev => ({ ...prev, currentZoomScale: newScale }));
+    try {
+      // First load the original PDF for preview
+      const fileUrl = fileToUrl(file);
+      setCurrentPdfUrl(fileUrl);
+      setFileName(file.name);
       
-      // Reset scroll position
-      if (containerRef.current) {
-        containerRef.current.scrollTop = 0;
-        containerRef.current.scrollLeft = 0;
+      // Then upload to backend for processing
+      const jobResponse = await uploadFile(file);
+      setCurrentJobId(jobResponse.job_id);
+      
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Update PDF URL when processing is complete
+  React.useEffect(() => {
+    if (job && job.detected_pdf_url && job.status !== JobStatus.PENDING) {
+      const shouldLoadPDF = job.status === JobStatus.PDF_PROCESSED || 
+                           job.status === JobStatus.COUNTING || 
+                           job.status === JobStatus.COMPLETED;
       
-      setTimeout(() => renderPage(pdfState.pageNum), 50);
+      if (shouldLoadPDF && job.detected_pdf_url && currentPdfUrl !== job.detected_pdf_url) {
+        setCurrentPdfUrl(job.detected_pdf_url);
+        setFileName(`Detected_${job.job_id}.pdf`);
+      }
     }
-  };
-
-  // Panning handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!pdfState.doc || e.button !== 0) return;
-    
-    e.preventDefault();
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    
-    if (containerRef.current) {
-      setScrollStart({
-        left: containerRef.current.scrollLeft,
-        top: containerRef.current.scrollTop
-      });
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !containerRef.current) return;
-    
-    e.preventDefault();
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
-    
-    containerRef.current.scrollLeft = scrollStart.left - dx;
-    containerRef.current.scrollTop = scrollStart.top - dy;
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
+  }, [job?.detected_pdf_url, job?.status, currentPdfUrl]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
@@ -325,30 +271,110 @@ export default function PDFViewerPage() {
                   accept=".pdf"
                   onChange={handleFileUpload}
                   className="hidden"
+                  disabled={isUploading}
                 />
                 <Button
                   onClick={() => fileInputRef.current?.click()}
                   className="w-full bg-blue-500 hover:bg-blue-600 transition-all duration-300 transform hover:scale-105"
                   size="lg"
+                  disabled={isUploading}
                 >
                   <Upload className="w-5 h-5 mr-2" />
-                  Upload PDF
+                  {isUploading ? 'Uploading...' : 'Upload PDF'}
                 </Button>
+                {uploadError && (
+                  <Alert className="mt-2" variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{uploadError}</AlertDescription>
+                  </Alert>
+                )}
               </div>
+
+              {/* Processing Stages */}
+              {currentJobId && processingStages.length > 0 && (
+                <Card className="bg-blue-50 border-blue-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Clock className="w-5 h-5" />
+                      Processing Status
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {processingStages.map((stage, index) => (
+                      <div key={stage.id} className="flex items-center gap-3">
+                        <div className="relative">
+                          {stage.status === 'completed' && (
+                            <CheckCircle className="w-6 h-6 text-green-500" />
+                          )}
+                          {stage.status === 'active' && (
+                            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                          )}
+                          {stage.status === 'pending' && (
+                            <div className="w-6 h-6 border-2 border-gray-300 rounded-full" />
+                          )}
+                          {stage.status === 'error' && (
+                            <AlertCircle className="w-6 h-6 text-red-500" />
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-semibold text-sm">{stage.title}</div>
+                          <div className="text-xs text-gray-600">{stage.description}</div>
+                        </div>
+                        <Badge variant={
+                          stage.status === 'completed' ? 'default' :
+                          stage.status === 'active' ? 'secondary' :
+                          stage.status === 'error' ? 'destructive' : 'outline'
+                        }>
+                          {stage.status === 'active' ? 'Processing' : stage.status}
+                        </Badge>
+                      </div>
+                    ))}
+                    
+                    {/* Job Status Info */}
+                    {job && (
+                      <div className="pt-2 border-t border-blue-200">
+                        <div className="text-xs text-gray-600">
+                          Job ID: {job.job_id}
+                        </div>
+                        {job.status === JobStatus.FAILED && job.error && (
+                          <Alert className="mt-2" variant="destructive">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription>{job.error}</AlertDescription>
+                          </Alert>
+                        )}
+                        {job.detected_pdf_url && (
+                          <div className="mt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(job.detected_pdf_url, '_blank')}
+                              className="w-full"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Download Detected PDF
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Detect & Sizes Section */}
               <div className="space-y-2">
                 <Button 
                   variant="outline" 
                   className="w-full"
-                  disabled={!pdfState.doc}
+                  disabled={!job || job.status !== JobStatus.COMPLETED}
                 >
                   Detect Valve & Sizes
                 </Button>
                 <Button 
                   variant="outline" 
                   className="w-full"
-                  disabled={!pdfState.doc}
+                  disabled={!job?.detected_pdf_url}
+                  onClick={() => job?.detected_pdf_url && window.open(job.detected_pdf_url, '_blank')}
                 >
                   Download Detected PDF
                 </Button>
@@ -361,7 +387,7 @@ export default function PDFViewerPage() {
               <Button 
                 variant="outline" 
                 className="w-full"
-                disabled={!pdfState.doc}
+                disabled={!job || job.status !== JobStatus.COMPLETED || !job.result}
               >
                 Download Valve Size Report
               </Button>
@@ -372,75 +398,45 @@ export default function PDFViewerPage() {
                   <CardTitle className="text-lg">Metadata:</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
-                  <div>
-                    <strong>Total Valve Count:</strong>
-                    <div className="ml-4 space-y-1">
-                      <div>Total VB:</div>
-                      <div>Total VC:</div>
-                      <div>Total VG:</div>
-                      <div>Total VGL:</div>
-                      <div>Total PSV:</div>
-                      <div>Total PCV:</div>
-                      <div>Total FCV:</div>
-                      <div>Total BDV:</div>
-                      <div>Total LCV:</div>
-                      <div>Total TCV:</div>
-                      <div>Total SDV:</div>
+                  {/* Valve Counts */}
+                  {job?.result?.valve_counts && (
+                    <div>
+                      <strong>Total Valve Count: {job.result.valve_counts.total_detections}</strong>
+                      <div className="ml-4 space-y-1 text-xs">
+                        <div>Total VB: {job.result.valve_counts.ball_valve_vb}</div>
+                        <div>Total VC: {job.result.valve_counts.check_valve_vc}</div>
+                        <div>Total VG: {job.result.valve_counts.gate_valve_vg}</div>
+                        <div>Total VGL: {job.result.valve_counts.globe_valve_vgl}</div>
+                        <div>Total PSV: {job.result.valve_counts.psv}</div>
+                        <div>Total PCV: {job.result.valve_counts.pcv}</div>
+                        <div>Total FCV: {job.result.valve_counts.fcv}</div>
+                        <div>Total BDV: {job.result.valve_counts.bdv}</div>
+                        <div>Total LCV: {job.result.valve_counts.lcv}</div>
+                        <div>Total TCV: {job.result.valve_counts.tcv}</div>
+                        <div>Total SDV: {job.result.valve_counts.sdv}</div>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Controls */}
-              <Card className="bg-gray-100">
-                <CardContent className="p-4 space-y-4">
-                  {/* Zoom Controls */}
-                  <div className="flex items-center justify-center space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleZoom('out')}
-                      disabled={!pdfState.doc || pdfState.currentZoomScale <= MIN_ZOOM_SCALE}
-                    >
-                      <ZoomOut className="w-4 h-4" />
-                    </Button>
-                    <span className="text-sm font-semibold min-w-[60px] text-center">
-                      {Math.round(pdfState.currentZoomScale * 100)}%
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleZoom('in')}
-                      disabled={!pdfState.doc || pdfState.currentZoomScale >= MAX_ZOOM_SCALE}
-                    >
-                      <ZoomIn className="w-4 h-4" />
-                    </Button>
-                  </div>
-
-                  {/* Page Navigation */}
-                  <div className="flex items-center justify-center space-x-2">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => navigatePage('prev')}
-                      disabled={!pdfState.doc || pdfState.pageNum <= 1}
-                    >
-                      <ChevronLeft className="w-4 h-4 mr-1" />
-                      Prev
-                    </Button>
-                    <span className="text-sm font-semibold min-w-[80px] text-center">
-                      Page {pdfMetadata.currentPage} of {pdfMetadata.totalPages}
-                    </span>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => navigatePage('next')}
-                      disabled={!pdfState.doc || pdfState.pageNum >= pdfMetadata.totalPages}
-                    >
-                      Next
-                      <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  </div>
+                  )}
+                  
+                  {/* Default metadata when no job */}
+                  {!job && (
+                    <div>
+                      <strong>Total Valve Count:</strong>
+                      <div className="ml-4 space-y-1">
+                        <div>Total VB:</div>
+                        <div>Total VC:</div>
+                        <div>Total VG:</div>
+                        <div>Total VGL:</div>
+                        <div>Total PSV:</div>
+                        <div>Total PCV:</div>
+                        <div>Total FCV:</div>
+                        <div>Total BDV:</div>
+                        <div>Total LCV:</div>
+                        <div>Total TCV:</div>
+                        <div>Total SDV:</div>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </CardContent>
@@ -451,22 +447,22 @@ export default function PDFViewerPage() {
         <section className="flex-1">
           <Card className="h-full shadow-lg">
             <CardContent className="p-6 h-full">
-              <div
-                ref={containerRef}
-                className={cn(
-                  "h-full overflow-auto rounded-lg border border-gray-300 bg-gray-50",
-                  pdfState.doc && "cursor-grab",
-                  isDragging && "cursor-grabbing"
+              <div className="h-full rounded-lg border border-gray-300 bg-white">
+                {currentPdfUrl ? (
+                  <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.js">
+                    <div className="h-full">
+                      <Viewer fileUrl={currentPdfUrl} />
+                    </div>
+                  </Worker>
+                ) : (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                      <Upload className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg">Upload a PDF to start valve detection</p>
+                      <p className="text-sm">Supported format: PDF files</p>
+                    </div>
+                  </div>
                 )}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-              >
-                <canvas
-                  ref={canvasRef}
-                  className="block mx-auto select-none"
-                />
               </div>
             </CardContent>
           </Card>
