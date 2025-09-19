@@ -1,16 +1,11 @@
 'use client'
 import React from 'react'
 import { useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Upload, Download, CheckCircle, Clock, AlertCircle, FileText } from 'lucide-react'
-import useSWR from 'swr'
-import { Viewer, Worker } from '@react-pdf-viewer/core'
-import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout'
-import '@react-pdf-viewer/core/lib/styles/index.css'
-import '@react-pdf-viewer/default-layout/lib/styles/index.css'
+import { Upload, AlertCircle } from 'lucide-react'
 
 // Job Status Enum matching backend
 enum JobStatus {
@@ -30,71 +25,8 @@ interface JobResponse {
   message: string;
 }
 
-interface JobResult {
-  job_id: string;
-  status: JobStatus;
-  created_at: string;
-  completed_at?: string;
-  detected_pdf_url?: string;
-  result?: {
-    status: string;
-    filename: string;
-    detected_pdf_url: string;
-    valve_counts: {
-      total_detections: number;
-      ball_valve_vb: number;
-      check_valve_vc: number;
-      gate_valve_vg: number;
-      globe_valve_vgl: number;
-      pcv: number;
-      tcv: number;
-      bdv: number;
-      sdv: number;
-      fcv: number;
-      psv: number;
-      lcv: number;
-    };
-    valve_sizes: Array<{
-      size_inches: string;
-      valve_name: string;
-      count: number;
-    }>;
-    processing_info: string;
-  };
-  error?: string;
-}
-
-// Processing Stage Info
-interface ProcessingStage {
-  id: string;
-  title: string;
-  description: string;
-  status: 'pending' | 'active' | 'completed' | 'error';
-}
-
 // API Configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
-
-// SWR Fetcher function
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
-
-// Custom hooks for API calls
-const useJobStatus = (jobId: string | null, interval: number = 2000) => {
-  const { data, error, isLoading } = useSWR(
-    jobId ? `${API_BASE_URL}/jobs/${jobId}` : null,
-    fetcher,
-    {
-      refreshInterval: interval,
-      revalidateOnFocus: false,
-    }
-  );
-  
-  return {
-    job: data as JobResult | undefined,
-    isLoading,
-    error
-  };
-};
 
 // Helper function to upload file
 const uploadFile = async (file: File): Promise<JobResponse> => {
@@ -113,213 +45,11 @@ const uploadFile = async (file: File): Promise<JobResponse> => {
   return response.json();
 };
 
-// Helper function to convert valve sizes to CSV and download
-const downloadValveSizeReport = (valveSizes: Array<{size_inches: string; valve_name: string; count: number}>, jobId: string) => {
-  // Create CSV headers
-  const headers = ['size_inches', 'valve_name', 'count'];
-  
-  // Convert data to CSV rows
-  const csvRows = [
-    headers.join(','), // Header row
-    ...valveSizes.map(valve => [
-      valve.size_inches,
-      valve.valve_name,
-      valve.count.toString()
-    ].join(','))
-  ];
-  
-  // Join all rows with newlines
-  const csvContent = csvRows.join('\n');
-  
-  // Create blob and download
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  
-  if (link.download !== undefined) {
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `valve_size_report_${jobId}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-};
-
-// Helper function to get processing stages
-const getProcessingStages = (currentStatus: JobStatus): ProcessingStage[] => {
-  const stages: ProcessingStage[] = [
-    {
-      id: 'upload',
-      title: 'PDF Upload',
-      description: 'Uploading and validating PDF file',
-      status: 'completed'
-    },
-    {
-      id: "pdf_processed",
-      title: "PDF Processed",
-      description: "Processing PDF for valve detection",
-      status: 'pending'
-    },
-    {
-      id: 'detection',
-      title: 'Valve Detection',
-      description: 'Detecting valves in PDF pages',
-      status: 'pending'
-    }
-  ];
-
-  // Update stages based on current status
-  switch (currentStatus) {
-    case JobStatus.PENDING:
-    case JobStatus.PROCESSING:
-      stages[1].status = 'active';
-      break;
-    case JobStatus.PDF_PROCESSED:
-      stages[1].status = 'completed';
-      stages[2].status = 'active';
-      break;
-    case JobStatus.COUNTING:
-      stages[1].status = 'completed';
-      stages[2].status = 'active';
-      break;
-    case JobStatus.COMPLETED:
-      stages[1].status = 'completed';
-      stages[2].status = 'completed';
-      break;
-    case JobStatus.FAILED:
-      stages[1].status = 'error';
-      break;
-    default:
-      break;
-  }
-
-  return stages;
-};
-
-// Helper function to check if detected PDF is available
-const isDetectedPdfAvailable = (job: JobResult | undefined): boolean => {
-  if (!job) return false;
-  return (job.status === JobStatus.PDF_PROCESSED || 
-          job.status === JobStatus.COUNTING || 
-          job.status === JobStatus.COMPLETED) && 
-         !!job.detected_pdf_url;
-};
-
-// Helper function to check if valve counts are available
-const areValveCountsAvailable = (job: JobResult | undefined): boolean => {
-  if (!job) return false;
-  return job.status === JobStatus.COMPLETED && !!job.result?.valve_counts;
-};
-
-export default function PDFViewerPage() {
-  const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
-  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+export default function HomePage() {
+  const router = useRouter();
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [fileName, setFileName] = useState<string>('N/A');
-  const [hasShownDetectedPdf, setHasShownDetectedPdf] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Use SWR to fetch job status
-  const { job, isLoading: jobIsLoading, error: jobError } = useJobStatus(currentJobId);
-
-  // Initialize default layout plugin with custom toolbar
-  const defaultLayoutPluginInstance = defaultLayoutPlugin({
-    sidebarTabs: () => [],
-    renderToolbar: (Toolbar) => (
-      <Toolbar>
-        {(slots) => {
-          const {
-            CurrentPageInput,
-            Download,
-            EnterFullScreen,
-            GoToNextPage,
-            GoToPreviousPage,
-            NumberOfPages,
-            Print,
-            ShowSearchPopover,
-            Zoom,
-            ZoomIn,
-            ZoomOut,
-          } = slots;
-          return (
-            <div className="flex items-center justify-between w-full p-2 bg-gray-50 border-b">
-              {/* Left side - Navigation */}
-              <div className="flex items-center gap-2">
-                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50 [&>button]:disabled:opacity-50">
-                  <GoToPreviousPage />
-                </div>
-                
-                <div className="flex items-center gap-1 text-sm">
-                  <CurrentPageInput />
-                  <span>of</span>
-                  <NumberOfPages />
-                </div>
-                
-                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50 [&>button]:disabled:opacity-50">
-                  <GoToNextPage />
-                </div>
-              </div>
-
-              {/* Center - Zoom controls */}
-              <div className="flex items-center gap-2">
-                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
-                  <ZoomOut />
-                </div>
-                
-                <Zoom>
-                  {(props) => (
-                    <select
-                      className="px-2 py-1 text-sm border rounded bg-white"
-                      value={props.scale}
-                      onChange={(e) => props.onZoom(parseFloat(e.target.value))}
-                    >
-                      <option value="0.5">50%</option>
-                      <option value="0.75">75%</option>
-                      <option value="1">100%</option>
-                      <option value="1.25">125%</option>
-                      <option value="1.5">150%</option>
-                      <option value="2">200%</option>
-                    </select>
-                  )}
-                </Zoom>
-                
-                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
-                  <ZoomIn />
-                </div>
-              </div>
-
-              {/* Right side - Actions */}
-              <div className="flex items-center gap-2">
-                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
-                  <ShowSearchPopover />
-                </div>
-                
-                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
-                  <Download />
-                </div>
-                
-                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
-                  <EnterFullScreen />
-                </div>
-              </div>
-            </div>
-          );
-        }}
-      </Toolbar>
-    ),
-  });
-
-  // Get processing stages
-  const processingStages = job ? getProcessingStages(job.status) : [];
-
-  // Helper function to convert File to URL
-  const fileToUrl = (file: File): string => {
-    return URL.createObjectURL(file);
-  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -335,17 +65,13 @@ export default function PDFViewerPage() {
 
     setUploadError(null);
     setIsUploading(true);
-    setHasShownDetectedPdf(false);
     
     try {
-      // First load the original PDF for preview
-      const fileUrl = fileToUrl(file);
-      setCurrentPdfUrl(fileUrl);
-      setFileName(file.name);
-      
-      // Then upload to backend for processing
+      // Upload to backend for processing
       const jobResponse = await uploadFile(file);
-      setCurrentJobId(jobResponse.job_id);
+      
+      // Redirect to processing page with job ID
+      router.push(`/${jobResponse.job_id}`);
       
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -358,26 +84,8 @@ export default function PDFViewerPage() {
     }
   };
 
-  // Handler for downloading valve size report
-  const handleDownloadValveSizeReport = () => {
-    if (job && job.result?.valve_sizes && areValveCountsAvailable(job)) {
-      downloadValveSizeReport(job.result.valve_sizes, job.job_id);
-    }
-  };
-
-  // Update PDF URL when detected PDF becomes available
-  React.useEffect(() => {
-    if (job && isDetectedPdfAvailable(job) && !hasShownDetectedPdf) {
-      if (job.detected_pdf_url && currentPdfUrl !== job.detected_pdf_url) {
-        setCurrentPdfUrl(job.detected_pdf_url);
-        setFileName(`Detected_${job.job_id}.pdf`);
-        setHasShownDetectedPdf(true);
-      }
-    }
-  }, [job?.detected_pdf_url, job?.status, currentPdfUrl, hasShownDetectedPdf]);
-
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 shadow-lg">
         <nav className="container mx-auto flex flex-col lg:flex-row justify-between items-center gap-4">
@@ -396,54 +104,32 @@ export default function PDFViewerPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex flex-1 overflow-hidden">
-        {/* Mobile sidebar toggle */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="lg:hidden fixed top-20 left-4 z-50"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-        >
-          {sidebarOpen ? 'Hide' : 'Show'} Tools
-        </Button>
+      <main className="container mx-auto px-4 py-12">
+        <div className="max-w-4xl mx-auto">
+          {/* Hero Section */}
+          <div className="text-center mb-12">
+            <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
+              AI-Powered P&ID Analysis
+            </h1>
+            <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
+              Upload your P&ID drawings and get automated valve counting and classification 
+              with our advanced AI detection system. Get detailed reports in minutes, not hours.
+            </p>
+          </div>
 
-        {/* Left Sidebar */}
-        <aside className={`
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-          fixed lg:relative z-40 lg:z-auto
-          w-80 lg:w-72 xl:w-80 
-          h-full lg:h-auto
-          bg-white lg:bg-transparent
-          transition-transform duration-300 ease-in-out
-          flex-shrink-0
-          p-4 lg:p-0 lg:mr-6
-          overflow-hidden
-        `}>
-          {/* Backdrop for mobile */}
-          {sidebarOpen && (
-            <div 
-              className="lg:hidden fixed inset-0 bg-black/50 -z-10"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
-          
-          <Card className="h-full shadow-lg flex flex-col">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle className="text-center text-gray-700 flex justify-between items-center">
-                PDF Tools
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="lg:hidden"
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  ×
-                </Button>
+          {/* Upload Section */}
+          <Card className="max-w-2xl mx-auto shadow-xl">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl text-gray-800">
+                Upload Your P&ID Drawing
               </CardTitle>
+              <p className="text-gray-600 mt-2">
+                Supported format: PDF files up to 50MB
+              </p>
             </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto space-y-6">
-              {/* Upload Button */}
-              <div>
+            <CardContent className="p-8">
+              {/* Upload Area */}
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-400 transition-colors">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -452,232 +138,157 @@ export default function PDFViewerPage() {
                   className="hidden"
                   disabled={isUploading}
                 />
+                
+                <Upload className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                
                 <Button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full bg-blue-500 hover:bg-blue-600 transition-all duration-300 transform hover:scale-105"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg"
                   size="lg"
                   disabled={isUploading}
                 >
-                  <Upload className="w-5 h-5 mr-2" />
-                  {isUploading ? 'Uploading...' : 'Upload PDF'}
+                  {isUploading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5 mr-2" />
+                      Choose PDF File
+                    </>
+                  )}
                 </Button>
-                {uploadError && (
-                  <Alert className="mt-2" variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{uploadError}</AlertDescription>
-                  </Alert>
-                )}
+                
+                <p className="text-sm text-gray-500 mt-4">
+                  Or drag and drop your PDF file here
+                </p>
               </div>
 
-              {/* Processing Stages */}
-              {currentJobId && processingStages.length > 0 && (
-                <Card className="bg-blue-50 border-blue-200">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Clock className="w-5 h-5" />
-                      Processing Status
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {processingStages.map((stage, index) => (
-                      <div key={stage.id} className="flex items-center gap-3">
-                        <div className="relative">
-                          {stage.status === 'completed' && (
-                            <CheckCircle className="w-6 h-6 text-green-500" />
-                          )}
-                          {stage.status === 'active' && (
-                            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                          )}
-                          {stage.status === 'pending' && (
-                            <div className="w-6 h-6 border-2 border-gray-300 rounded-full" />
-                          )}
-                          {stage.status === 'error' && (
-                            <AlertCircle className="w-6 h-6 text-red-500" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm truncate">{stage.title}</div>
-                          <div className="text-xs text-gray-600 line-clamp-2">{stage.description}</div>
-                        </div>
-                        <Badge variant={
-                          stage.status === 'completed' ? 'default' :
-                          stage.status === 'active' ? 'secondary' :
-                          stage.status === 'error' ? 'destructive' : 'outline'
-                        }>
-                          {stage.status === 'active' ? 'Processing' : stage.status}
-                        </Badge>
-                      </div>
-                    ))}
-                    
-                    {/* Job Status Info */}
-                    {job && (
-                      <div className="pt-2 border-t border-blue-200">
-                        <div className="text-xs text-gray-600 truncate">
-                          Job ID: {job.job_id}
-                        </div>
-                        {job.status === JobStatus.FAILED && job.error && (
-                          <Alert className="mt-2" variant="destructive">
-                            <AlertCircle className="h-4 w-4" />
-                            <AlertDescription className="text-xs">{job.error}</AlertDescription>
-                          </Alert>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+              {/* Error Display */}
+              {uploadError && (
+                <Alert className="mt-4" variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{uploadError}</AlertDescription>
+                </Alert>
               )}
 
-              {/* Detected PDF Download - Available as soon as PDF is processed */}
-              {isDetectedPdfAvailable(job) && (
-                <Card className="bg-green-50 border-green-200">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg flex items-center gap-2 text-green-700">
-                      <FileText className="w-5 h-5" />
-                      Detected PDF Ready
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-green-600 mb-3">
-                      Valve detection complete! Download the annotated PDF with detected valves highlighted.
-                    </p>
-                    <Button
-                      variant="default"
-                      className="w-full bg-green-600 hover:bg-green-700"
-                      onClick={() => job?.detected_pdf_url && window.open(job.detected_pdf_url, '_blank')}
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Download Detected PDF
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Valve Size Report - Only available when counting is complete */}
-              <div className="space-y-2">
-                <div className="text-sm text-gray-600 flex items-center justify-between">
-                  <span>Valve Size Report:</span>
-                  {areValveCountsAvailable(job) && (
-                    <Badge variant="default">Ready</Badge>
-                  )}
-                  {job && job.status === JobStatus.COUNTING && (
-                    <Badge variant="secondary">Processing...</Badge>
-                  )}
+              {/* Features List */}
+              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-sm text-gray-700">Automatic valve detection</span>
                 </div>
-                <Button 
-                  variant="outline" 
-                  className="w-full"
-                  disabled={!areValveCountsAvailable(job)}
-                  onClick={handleDownloadValveSizeReport}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download Valve Size Report
-                </Button>
-              </div>
-
-              {/* Metadata */}
-              <Card className="bg-gray-50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg flex items-center justify-between">
-                    <span>Metadata:</span>
-                    {areValveCountsAvailable(job) && (
-                      <Badge variant="default" className="text-xs">Updated</Badge>
-                    )}
-                    {job && (job.status === JobStatus.COUNTING || job.status === JobStatus.PDF_PROCESSED) && !areValveCountsAvailable(job) && (
-                      <Badge variant="secondary" className="text-xs">Counting...</Badge>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                  {/* Valve Counts - Show when available */}
-                  {job && areValveCountsAvailable(job) && job.result?.valve_counts && (
-                    <div>
-                      <strong>Total Valve Count: {job.result.valve_counts.total_detections}</strong>
-                      <div className="ml-4 space-y-1 text-xs grid grid-cols-2 gap-1">
-                        <div>Total VB: {job.result.valve_counts.ball_valve_vb}</div>
-                        <div>Total VC: {job.result.valve_counts.check_valve_vc}</div>
-                        <div>Total VG: {job.result.valve_counts.gate_valve_vg}</div>
-                        <div>Total VGL: {job.result.valve_counts.globe_valve_vgl}</div>
-                        <div>Total PSV: {job.result.valve_counts.psv}</div>
-                        <div>Total PCV: {job.result.valve_counts.pcv}</div>
-                        <div>Total FCV: {job.result.valve_counts.fcv}</div>
-                        <div>Total BDV: {job.result.valve_counts.bdv}</div>
-                        <div>Total LCV: {job.result.valve_counts.lcv}</div>
-                        <div>Total TCV: {job.result.valve_counts.tcv}</div>
-                        <div>Total SDV: {job.result.valve_counts.sdv}</div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Show processing message when counting */}
-                  {job && (job.status === JobStatus.COUNTING || job.status === JobStatus.PDF_PROCESSED) && !areValveCountsAvailable(job) && (
-                    <div>
-                      <strong>Valve counting in progress...</strong>
-                      <div className="ml-4 space-y-1 text-xs text-gray-500">
-                        <div>Analyzing detected valves</div>
-                        <div>Calculating sizes and counts</div>
-                        <div>Results will appear here when ready</div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Default metadata when no job */}
-                  {!job && (
-                    <div>
-                      <strong>Total Valve Count:</strong>
-                      <div className="ml-4 space-y-1 grid grid-cols-2 gap-1 text-xs">
-                        <div>Total VB:</div>
-                        <div>Total VC:</div>
-                        <div>Total VG:</div>
-                        <div>Total VGL:</div>
-                        <div>Total PSV:</div>
-                        <div>Total PCV:</div>
-                        <div>Total FCV:</div>
-                        <div>Total BDV:</div>
-                        <div>Total LCV:</div>
-                        <div>Total TCV:</div>
-                        <div>Total SDV:</div>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </CardContent>
-          </Card>
-        </aside>
-
-        {/* PDF Viewer */}
-        <section className={`
-          flex-1 
-          ${sidebarOpen ? 'ml-0 lg:ml-0' : 'ml-0'}
-          transition-all duration-300
-          p-4 lg:p-0 lg:pr-4
-        `}>
-          <Card className="h-full shadow-lg flex flex-col">
-            <CardContent className="p-0 h-full flex flex-col">
-              <div className="flex-1 rounded-lg border border-gray-300 bg-white overflow-hidden">
-                {currentPdfUrl ? (
-                  <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.js">
-                    <div className="h-full">
-                      <Viewer 
-                        fileUrl={currentPdfUrl} 
-                        plugins={[defaultLayoutPluginInstance]}
-                      />
-                    </div>
-                  </Worker>
-                ) : (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="text-center text-gray-500 p-4">
-                      <Upload className="w-12 lg:w-16 h-12 lg:h-16 mx-auto mb-4 opacity-50" />
-                      <p className="text-lg">Upload a PDF to start valve detection</p>
-                      <p className="text-sm">Supported format: PDF files</p>
-                    </div>
-                  </div>
-                )}
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-sm text-gray-700">Classification by type</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-sm text-gray-700">Size analysis</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-sm text-gray-700">Detailed CSV reports</span>
+                </div>
               </div>
             </CardContent>
           </Card>
-        </section>
+
+          {/* How It Works Section */}
+          <div className="mt-16">
+            <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">
+              How It Works
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Upload className="w-8 h-8 text-blue-600" />
+                </div>
+                <h3 className="text-xl font-semibold mb-2">1. Upload</h3>
+                <p className="text-gray-600">
+                  Upload your P&ID PDF drawing to our secure platform
+                </p>
+              </div>
+              
+              <div className="text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+                <h3 className="text-xl font-semibold mb-2">2. Analyze</h3>
+                <p className="text-gray-600">
+                  Our AI analyzes your drawing and detects all valves automatically
+                </p>
+              </div>
+              
+              <div className="text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold mb-2">3. Download</h3>
+                <p className="text-gray-600">
+                  Get detailed reports and annotated PDFs with all valve data
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Benefits Section */}
+          <div className="mt-16 bg-white rounded-lg shadow-lg p-8">
+            <h2 className="text-3xl font-bold text-center text-gray-900 mb-8">
+              Why Choose NRGTech?
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="text-center">
+                <div className="text-4xl mb-3">⚡</div>
+                <h3 className="font-semibold mb-2">Fast Processing</h3>
+                <p className="text-sm text-gray-600">Get results in minutes, not hours of manual counting</p>
+              </div>
+              
+              <div className="text-center">
+                <div className="text-4xl mb-3">🎯</div>
+                <h3 className="font-semibold mb-2">High Accuracy</h3>
+                <p className="text-sm text-gray-600">AI-powered detection with industry-leading precision</p>
+              </div>
+              
+              <div className="text-center">
+                <div className="text-4xl mb-3">📊</div>
+                <h3 className="font-semibold mb-2">Detailed Reports</h3>
+                <p className="text-sm text-gray-600">Comprehensive CSV reports for easy analysis</p>
+              </div>
+              
+              <div className="text-center">
+                <div className="text-4xl mb-3">🔒</div>
+                <h3 className="font-semibold mb-2">Secure</h3>
+                <p className="text-sm text-gray-600">Your data is protected with enterprise-grade security</p>
+              </div>
+              
+              <div className="text-center">
+                <div className="text-4xl mb-3">💰</div>
+                <h3 className="font-semibold mb-2">Cost Effective</h3>
+                <p className="text-sm text-gray-600">Reduce manual labor costs and improve efficiency</p>
+              </div>
+              
+              <div className="text-center">
+                <div className="text-4xl mb-3">🔄</div>
+                <h3 className="font-semibold mb-2">Easy Integration</h3>
+                <p className="text-sm text-gray-600">Fits seamlessly into your existing workflow</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
+
+      {/* Footer */}
+      <footer className="bg-gray-800 text-white py-8 mt-16">
+        <div className="container mx-auto px-4 text-center">
+          <p className="text-gray-400">
+            © 2024 NRGTech. All rights reserved. Automated P&ID Parts Count Solution.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
