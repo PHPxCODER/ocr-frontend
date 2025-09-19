@@ -112,6 +112,39 @@ const uploadFile = async (file: File): Promise<JobResponse> => {
   return response.json();
 };
 
+// Helper function to convert valve sizes to CSV and download
+const downloadValveSizeReport = (valveSizes: Array<{size_inches: string; valve_name: string; count: number}>, jobId: string) => {
+  // Create CSV headers
+  const headers = ['size_inches', 'valve_name', 'count'];
+  
+  // Convert data to CSV rows
+  const csvRows = [
+    headers.join(','), // Header row
+    ...valveSizes.map(valve => [
+      valve.size_inches,
+      valve.valve_name,
+      valve.count.toString()
+    ].join(','))
+  ];
+  
+  // Join all rows with newlines
+  const csvContent = csvRows.join('\n');
+  
+  // Create blob and download
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  
+  if (link.download !== undefined) {
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `valve_size_report_${jobId}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
+
 // Helper function to get processing stages
 const getProcessingStages = (currentStatus: JobStatus): ProcessingStage[] => {
   const stages: ProcessingStage[] = [
@@ -131,12 +164,6 @@ const getProcessingStages = (currentStatus: JobStatus): ProcessingStage[] => {
       id: 'detection',
       title: 'Valve Detection',
       description: 'Detecting valves in PDF pages',
-      status: 'pending'
-    },
-    {
-      id: 'counting',
-      title: 'Valve Analysis',
-      description: 'Counting and sizing valves',
       status: 'pending'
     }
   ];
@@ -239,6 +266,13 @@ export default function PDFViewerPage() {
       }
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // Handler for downloading valve size report
+  const handleDownloadValveSizeReport = () => {
+    if (job && job.result?.valve_sizes && areValveCountsAvailable(job)) {
+      downloadValveSizeReport(job.result.valve_sizes, job.job_id);
     }
   };
 
@@ -393,25 +427,6 @@ export default function PDFViewerPage() {
                 </Card>
               )}
 
-              {/* Detect & Sizes Section */}
-              <div className="space-y-2">
-                <Button 
-                  variant="outline" 
-                  className="w-full"
-                  disabled={!isDetectedPdfAvailable(job)}
-                >
-                  Detect Valve & Sizes
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full"
-                  disabled={!isDetectedPdfAvailable(job)}
-                  onClick={() => job?.detected_pdf_url && window.open(job.detected_pdf_url, '_blank')}
-                >
-                  Download Detected PDF
-                </Button>
-              </div>
-
               {/* Valve Size Report - Only available when counting is complete */}
               <div className="space-y-2">
                 <div className="text-sm text-gray-600">
@@ -427,7 +442,9 @@ export default function PDFViewerPage() {
                   variant="outline" 
                   className="w-full"
                   disabled={!areValveCountsAvailable(job)}
+                  onClick={handleDownloadValveSizeReport}
                 >
+                  <Download className="w-4 h-4 mr-2" />
                   Download Valve Size Report
                 </Button>
               </div>
