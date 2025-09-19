@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Upload, Download, CheckCircle, Clock, AlertCircle, FileText } from 'lucide-react'
 import useSWR from 'swr'
 import { Viewer, Worker } from '@react-pdf-viewer/core'
+import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout'
 import '@react-pdf-viewer/core/lib/styles/index.css'
 import '@react-pdf-viewer/default-layout/lib/styles/index.css'
 
@@ -218,11 +219,99 @@ export default function PDFViewerPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [fileName, setFileName] = useState<string>('N/A');
   const [hasShownDetectedPdf, setHasShownDetectedPdf] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Use SWR to fetch job status
   const { job, isLoading: jobIsLoading, error: jobError } = useJobStatus(currentJobId);
+
+  // Initialize default layout plugin with custom toolbar
+  const defaultLayoutPluginInstance = defaultLayoutPlugin({
+    sidebarTabs: () => [],
+    renderToolbar: (Toolbar) => (
+      <Toolbar>
+        {(slots) => {
+          const {
+            CurrentPageInput,
+            Download,
+            EnterFullScreen,
+            GoToNextPage,
+            GoToPreviousPage,
+            NumberOfPages,
+            Print,
+            ShowSearchPopover,
+            Zoom,
+            ZoomIn,
+            ZoomOut,
+          } = slots;
+          return (
+            <div className="flex items-center justify-between w-full p-2 bg-gray-50 border-b">
+              {/* Left side - Navigation */}
+              <div className="flex items-center gap-2">
+                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50 [&>button]:disabled:opacity-50">
+                  <GoToPreviousPage />
+                </div>
+                
+                <div className="flex items-center gap-1 text-sm">
+                  <CurrentPageInput />
+                  <span>of</span>
+                  <NumberOfPages />
+                </div>
+                
+                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50 [&>button]:disabled:opacity-50">
+                  <GoToNextPage />
+                </div>
+              </div>
+
+              {/* Center - Zoom controls */}
+              <div className="flex items-center gap-2">
+                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
+                  <ZoomOut />
+                </div>
+                
+                <Zoom>
+                  {(props) => (
+                    <select
+                      className="px-2 py-1 text-sm border rounded bg-white"
+                      value={props.scale}
+                      onChange={(e) => props.onZoom(parseFloat(e.target.value))}
+                    >
+                      <option value="0.5">50%</option>
+                      <option value="0.75">75%</option>
+                      <option value="1">100%</option>
+                      <option value="1.25">125%</option>
+                      <option value="1.5">150%</option>
+                      <option value="2">200%</option>
+                    </select>
+                  )}
+                </Zoom>
+                
+                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
+                  <ZoomIn />
+                </div>
+              </div>
+
+              {/* Right side - Actions */}
+              <div className="flex items-center gap-2">
+                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
+                  <ShowSearchPopover />
+                </div>
+                
+                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
+                  <Download />
+                </div>
+                
+                <div className="[&>button]:px-2 [&>button]:py-1 [&>button]:text-sm [&>button]:border [&>button]:rounded [&>button]:bg-white [&>button]:hover:bg-gray-50">
+                  <EnterFullScreen />
+                </div>
+              </div>
+            </div>
+          );
+        }}
+      </Toolbar>
+    ),
+  });
 
   // Get processing stages
   const processingStages = job ? getProcessingStages(job.status) : [];
@@ -291,14 +380,14 @@ export default function PDFViewerPage() {
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 shadow-lg">
-        <nav className="container mx-auto flex justify-between items-center">
-          <div className="text-2xl font-bold bg-white/10 rounded-md px-3 py-1 backdrop-blur-sm">
+        <nav className="container mx-auto flex flex-col lg:flex-row justify-between items-center gap-4">
+          <div className="text-xl lg:text-2xl font-bold bg-white/10 rounded-md px-3 py-1 backdrop-blur-sm">
             NRGTech
           </div>
-          <div className="text-2xl font-semibold">
+          <div className="text-lg lg:text-2xl font-semibold text-center">
             AUTOMATED P&ID PARTS COUNT
           </div>
-          <ul className="flex space-x-6 text-lg">
+          <ul className="flex space-x-4 lg:space-x-6 text-sm lg:text-lg">
             <li><a href="#" className="hover:text-blue-200 transition-colors">Home</a></li>
             <li><a href="#" className="hover:text-blue-200 transition-colors">About</a></li>
             <li><a href="#" className="hover:text-blue-200 transition-colors">Contact</a></li>
@@ -307,16 +396,52 @@ export default function PDFViewerPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex flex-1 p-4 overflow-hidden">
+      <main className="flex flex-1 overflow-hidden">
+        {/* Mobile sidebar toggle */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="lg:hidden fixed top-20 left-4 z-50"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+        >
+          {sidebarOpen ? 'Hide' : 'Show'} Tools
+        </Button>
+
         {/* Left Sidebar */}
-        <aside className="w-72 mr-6 flex-shrink-0">
-          <Card className="h-full shadow-lg">
-            <CardHeader>
-              <CardTitle className="text-center text-gray-700">
+        <aside className={`
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          fixed lg:relative z-40 lg:z-auto
+          w-80 lg:w-72 xl:w-80 
+          h-full lg:h-auto
+          bg-white lg:bg-transparent
+          transition-transform duration-300 ease-in-out
+          flex-shrink-0
+          p-4 lg:p-0 lg:mr-6
+          overflow-hidden
+        `}>
+          {/* Backdrop for mobile */}
+          {sidebarOpen && (
+            <div 
+              className="lg:hidden fixed inset-0 bg-black/50 -z-10"
+              onClick={() => setSidebarOpen(false)}
+            />
+          )}
+          
+          <Card className="h-full shadow-lg flex flex-col">
+            <CardHeader className="flex-shrink-0">
+              <CardTitle className="text-center text-gray-700 flex justify-between items-center">
                 PDF Tools
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="lg:hidden"
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  ×
+                </Button>
               </CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col h-full space-y-6">
+            <CardContent className="flex-1 overflow-y-auto space-y-6">
               {/* Upload Button */}
               <div>
                 <input
@@ -370,9 +495,9 @@ export default function PDFViewerPage() {
                             <AlertCircle className="w-6 h-6 text-red-500" />
                           )}
                         </div>
-                        <div className="flex-1">
-                          <div className="font-semibold text-sm">{stage.title}</div>
-                          <div className="text-xs text-gray-600">{stage.description}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm truncate">{stage.title}</div>
+                          <div className="text-xs text-gray-600 line-clamp-2">{stage.description}</div>
                         </div>
                         <Badge variant={
                           stage.status === 'completed' ? 'default' :
@@ -387,13 +512,13 @@ export default function PDFViewerPage() {
                     {/* Job Status Info */}
                     {job && (
                       <div className="pt-2 border-t border-blue-200">
-                        <div className="text-xs text-gray-600">
+                        <div className="text-xs text-gray-600 truncate">
                           Job ID: {job.job_id}
                         </div>
                         {job.status === JobStatus.FAILED && job.error && (
                           <Alert className="mt-2" variant="destructive">
                             <AlertCircle className="h-4 w-4" />
-                            <AlertDescription>{job.error}</AlertDescription>
+                            <AlertDescription className="text-xs">{job.error}</AlertDescription>
                           </Alert>
                         )}
                       </div>
@@ -429,13 +554,13 @@ export default function PDFViewerPage() {
 
               {/* Valve Size Report - Only available when counting is complete */}
               <div className="space-y-2">
-                <div className="text-sm text-gray-600">
-                  Valve Size Report: 
+                <div className="text-sm text-gray-600 flex items-center justify-between">
+                  <span>Valve Size Report:</span>
                   {areValveCountsAvailable(job) && (
-                    <Badge variant="default" className="ml-2">Ready</Badge>
+                    <Badge variant="default">Ready</Badge>
                   )}
                   {job && job.status === JobStatus.COUNTING && (
-                    <Badge variant="secondary" className="ml-2">Processing...</Badge>
+                    <Badge variant="secondary">Processing...</Badge>
                   )}
                 </div>
                 <Button 
@@ -450,15 +575,15 @@ export default function PDFViewerPage() {
               </div>
 
               {/* Metadata */}
-              <Card className="flex-1 bg-gray-50">
+              <Card className="bg-gray-50">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">
-                    Metadata:
+                  <CardTitle className="text-lg flex items-center justify-between">
+                    <span>Metadata:</span>
                     {areValveCountsAvailable(job) && (
-                      <Badge variant="default" className="ml-2 text-xs">Updated</Badge>
+                      <Badge variant="default" className="text-xs">Updated</Badge>
                     )}
                     {job && (job.status === JobStatus.COUNTING || job.status === JobStatus.PDF_PROCESSED) && !areValveCountsAvailable(job) && (
-                      <Badge variant="secondary" className="ml-2 text-xs">Counting...</Badge>
+                      <Badge variant="secondary" className="text-xs">Counting...</Badge>
                     )}
                   </CardTitle>
                 </CardHeader>
@@ -467,7 +592,7 @@ export default function PDFViewerPage() {
                   {job && areValveCountsAvailable(job) && job.result?.valve_counts && (
                     <div>
                       <strong>Total Valve Count: {job.result.valve_counts.total_detections}</strong>
-                      <div className="ml-4 space-y-1 text-xs">
+                      <div className="ml-4 space-y-1 text-xs grid grid-cols-2 gap-1">
                         <div>Total VB: {job.result.valve_counts.ball_valve_vb}</div>
                         <div>Total VC: {job.result.valve_counts.check_valve_vc}</div>
                         <div>Total VG: {job.result.valve_counts.gate_valve_vg}</div>
@@ -499,7 +624,7 @@ export default function PDFViewerPage() {
                   {!job && (
                     <div>
                       <strong>Total Valve Count:</strong>
-                      <div className="ml-4 space-y-1">
+                      <div className="ml-4 space-y-1 grid grid-cols-2 gap-1 text-xs">
                         <div>Total VB:</div>
                         <div>Total VC:</div>
                         <div>Total VG:</div>
@@ -521,20 +646,28 @@ export default function PDFViewerPage() {
         </aside>
 
         {/* PDF Viewer */}
-        <section className="flex-1">
-          <Card className="h-full shadow-lg">
-            <CardContent className="p-6 h-full">
-              <div className="h-full rounded-lg border border-gray-300 bg-white">
+        <section className={`
+          flex-1 
+          ${sidebarOpen ? 'ml-0 lg:ml-0' : 'ml-0'}
+          transition-all duration-300
+          p-4 lg:p-0 lg:pr-4
+        `}>
+          <Card className="h-full shadow-lg flex flex-col">
+            <CardContent className="p-0 h-full flex flex-col">
+              <div className="flex-1 rounded-lg border border-gray-300 bg-white overflow-hidden">
                 {currentPdfUrl ? (
                   <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.js">
                     <div className="h-full">
-                      <Viewer fileUrl={currentPdfUrl} />
+                      <Viewer 
+                        fileUrl={currentPdfUrl} 
+                        plugins={[defaultLayoutPluginInstance]}
+                      />
                     </div>
                   </Worker>
                 ) : (
                   <div className="h-full flex items-center justify-center">
-                    <div className="text-center text-gray-500">
-                      <Upload className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <div className="text-center text-gray-500 p-4">
+                      <Upload className="w-12 lg:w-16 h-12 lg:h-16 mx-auto mb-4 opacity-50" />
                       <p className="text-lg">Upload a PDF to start valve detection</p>
                       <p className="text-sm">Supported format: PDF files</p>
                     </div>
