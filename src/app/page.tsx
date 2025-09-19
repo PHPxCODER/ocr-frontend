@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Upload, Download, CheckCircle, Clock, AlertCircle } from 'lucide-react'
+import { Upload, Download, CheckCircle, Clock, AlertCircle, FileText } from 'lucide-react'
 import useSWR from 'swr'
 import { Viewer, Worker } from '@react-pdf-viewer/core'
 import '@react-pdf-viewer/core/lib/styles/index.css'
@@ -122,6 +122,12 @@ const getProcessingStages = (currentStatus: JobStatus): ProcessingStage[] => {
       status: 'completed'
     },
     {
+      id: "pdf_processed",
+      title: "PDF Processed",
+      description: "Processing PDF for valve detection",
+      status: 'pending'
+    },
+    {
       id: 'detection',
       title: 'Valve Detection',
       description: 'Detecting valves in PDF pages',
@@ -163,12 +169,28 @@ const getProcessingStages = (currentStatus: JobStatus): ProcessingStage[] => {
   return stages;
 };
 
+// Helper function to check if detected PDF is available
+const isDetectedPdfAvailable = (job: JobResult | undefined): boolean => {
+  if (!job) return false;
+  return (job.status === JobStatus.PDF_PROCESSED || 
+          job.status === JobStatus.COUNTING || 
+          job.status === JobStatus.COMPLETED) && 
+         !!job.detected_pdf_url;
+};
+
+// Helper function to check if valve counts are available
+const areValveCountsAvailable = (job: JobResult | undefined): boolean => {
+  if (!job) return false;
+  return job.status === JobStatus.COMPLETED && !!job.result?.valve_counts;
+};
+
 export default function PDFViewerPage() {
   const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [fileName, setFileName] = useState<string>('N/A');
+  const [hasShownDetectedPdf, setHasShownDetectedPdf] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -197,6 +219,7 @@ export default function PDFViewerPage() {
 
     setUploadError(null);
     setIsUploading(true);
+    setHasShownDetectedPdf(false);
     
     try {
       // First load the original PDF for preview
@@ -219,19 +242,16 @@ export default function PDFViewerPage() {
     }
   };
 
-  // Update PDF URL when processing is complete
+  // Update PDF URL when detected PDF becomes available
   React.useEffect(() => {
-    if (job && job.detected_pdf_url && job.status !== JobStatus.PENDING) {
-      const shouldLoadPDF = job.status === JobStatus.PDF_PROCESSED || 
-                           job.status === JobStatus.COUNTING || 
-                           job.status === JobStatus.COMPLETED;
-      
-      if (shouldLoadPDF && job.detected_pdf_url && currentPdfUrl !== job.detected_pdf_url) {
+    if (job && isDetectedPdfAvailable(job) && !hasShownDetectedPdf) {
+      if (job.detected_pdf_url && currentPdfUrl !== job.detected_pdf_url) {
         setCurrentPdfUrl(job.detected_pdf_url);
         setFileName(`Detected_${job.job_id}.pdf`);
+        setHasShownDetectedPdf(true);
       }
     }
-  }, [job?.detected_pdf_url, job?.status, currentPdfUrl]);
+  }, [job?.detected_pdf_url, job?.status, currentPdfUrl, hasShownDetectedPdf]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
@@ -342,21 +362,33 @@ export default function PDFViewerPage() {
                             <AlertDescription>{job.error}</AlertDescription>
                           </Alert>
                         )}
-                        {job.detected_pdf_url && (
-                          <div className="mt-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => window.open(job.detected_pdf_url, '_blank')}
-                              className="w-full"
-                            >
-                              <Download className="w-4 h-4 mr-2" />
-                              Download Detected PDF
-                            </Button>
-                          </div>
-                        )}
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Detected PDF Download - Available as soon as PDF is processed */}
+              {isDetectedPdfAvailable(job) && (
+                <Card className="bg-green-50 border-green-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2 text-green-700">
+                      <FileText className="w-5 h-5" />
+                      Detected PDF Ready
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-green-600 mb-3">
+                      Valve detection complete! Download the annotated PDF with detected valves highlighted.
+                    </p>
+                    <Button
+                      variant="default"
+                      className="w-full bg-green-600 hover:bg-green-700"
+                      onClick={() => job?.detected_pdf_url && window.open(job.detected_pdf_url, '_blank')}
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Download Detected PDF
+                    </Button>
                   </CardContent>
                 </Card>
               )}
@@ -366,40 +398,56 @@ export default function PDFViewerPage() {
                 <Button 
                   variant="outline" 
                   className="w-full"
-                  disabled={!job || job.status !== JobStatus.COMPLETED}
+                  disabled={!isDetectedPdfAvailable(job)}
                 >
                   Detect Valve & Sizes
                 </Button>
                 <Button 
                   variant="outline" 
                   className="w-full"
-                  disabled={!job?.detected_pdf_url}
+                  disabled={!isDetectedPdfAvailable(job)}
                   onClick={() => job?.detected_pdf_url && window.open(job.detected_pdf_url, '_blank')}
                 >
                   Download Detected PDF
                 </Button>
               </div>
 
-              {/* Valve Size Report */}
-              <div className="text-sm text-gray-600">
-                Valve Size Report: 
+              {/* Valve Size Report - Only available when counting is complete */}
+              <div className="space-y-2">
+                <div className="text-sm text-gray-600">
+                  Valve Size Report: 
+                  {areValveCountsAvailable(job) && (
+                    <Badge variant="default" className="ml-2">Ready</Badge>
+                  )}
+                  {job && job.status === JobStatus.COUNTING && (
+                    <Badge variant="secondary" className="ml-2">Processing...</Badge>
+                  )}
+                </div>
+                <Button 
+                  variant="outline" 
+                  className="w-full"
+                  disabled={!areValveCountsAvailable(job)}
+                >
+                  Download Valve Size Report
+                </Button>
               </div>
-              <Button 
-                variant="outline" 
-                className="w-full"
-                disabled={!job || job.status !== JobStatus.COMPLETED || !job.result}
-              >
-                Download Valve Size Report
-              </Button>
 
               {/* Metadata */}
               <Card className="flex-1 bg-gray-50">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Metadata:</CardTitle>
+                  <CardTitle className="text-lg">
+                    Metadata:
+                    {areValveCountsAvailable(job) && (
+                      <Badge variant="default" className="ml-2 text-xs">Updated</Badge>
+                    )}
+                    {job && (job.status === JobStatus.COUNTING || job.status === JobStatus.PDF_PROCESSED) && !areValveCountsAvailable(job) && (
+                      <Badge variant="secondary" className="ml-2 text-xs">Counting...</Badge>
+                    )}
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
-                  {/* Valve Counts */}
-                  {job?.result?.valve_counts && (
+                  {/* Valve Counts - Show when available */}
+                  {job && areValveCountsAvailable(job) && job.result?.valve_counts && (
                     <div>
                       <strong>Total Valve Count: {job.result.valve_counts.total_detections}</strong>
                       <div className="ml-4 space-y-1 text-xs">
@@ -414,6 +462,18 @@ export default function PDFViewerPage() {
                         <div>Total LCV: {job.result.valve_counts.lcv}</div>
                         <div>Total TCV: {job.result.valve_counts.tcv}</div>
                         <div>Total SDV: {job.result.valve_counts.sdv}</div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Show processing message when counting */}
+                  {job && (job.status === JobStatus.COUNTING || job.status === JobStatus.PDF_PROCESSED) && !areValveCountsAvailable(job) && (
+                    <div>
+                      <strong>Valve counting in progress...</strong>
+                      <div className="ml-4 space-y-1 text-xs text-gray-500">
+                        <div>Analyzing detected valves</div>
+                        <div>Calculating sizes and counts</div>
+                        <div>Results will appear here when ready</div>
                       </div>
                     </div>
                   )}
