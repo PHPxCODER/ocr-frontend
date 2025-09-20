@@ -313,6 +313,7 @@ export default function JobProcessingPage() {
     if (isDetectedPdfAvailable(job) && !showDetectedPdf) {
       setShowDetectedPdf(true);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.status, job?.detected_pdf_url, showDetectedPdf]);
 
   // Handle job cancellation
@@ -525,7 +526,7 @@ export default function JobProcessingPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {processingStages.map((stage, index) => (
+                {processingStages.map((stage) => (
                   <div key={stage.id} className="space-y-2">
                     <div className="flex items-center gap-3">
                       <div className="relative">
