@@ -2,6 +2,7 @@
 import React from 'react'
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -17,7 +18,10 @@ import {
   RefreshCw,
   Home,
   X,
-  StopCircle
+  StopCircle,
+  Moon,
+  Sun,
+  Monitor
 } from 'lucide-react'
 import useSWR from 'swr'
 import { Viewer, Worker } from '@react-pdf-viewer/core'
@@ -98,6 +102,28 @@ const fetcher = (url: string) => fetch(url).then((res) => {
   }
   return res.json();
 });
+
+// Theme Toggle Component
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark')}
+      className="text-white hover:bg-white/10 transition-colors"
+    >
+      {theme === 'dark' ? (
+        <Moon className="h-4 w-4" />
+      ) : theme === 'light' ? (
+        <Sun className="h-4 w-4" />
+      ) : (
+        <Monitor className="h-4 w-4" />
+      )}
+    </Button>
+  );
+}
 
 // Custom hook for job status with error handling
 const useJobStatus = (jobId: string, interval: number = 2000) => {
@@ -345,8 +371,8 @@ export default function JobProcessingPage() {
   // Loading state
   if (isLoading && !job) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4">
+      <div className="min-h-screen bg-background text-foreground transition-colors">
+        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 text-white p-4">
           <div className="container mx-auto">
             <h1 className="text-2xl font-bold">NRGTech - Processing Status</h1>
           </div>
@@ -354,8 +380,8 @@ export default function JobProcessingPage() {
         <main className="container mx-auto p-4">
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
-              <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4" />
-              <p>Loading job status...</p>
+              <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-muted-foreground" />
+              <p className="text-muted-foreground">Loading job status...</p>
             </div>
           </div>
         </main>
@@ -366,8 +392,8 @@ export default function JobProcessingPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4">
+      <div className="min-h-screen bg-background text-foreground transition-colors">
+        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 text-white p-4">
           <div className="container mx-auto flex items-center gap-4">
             <Button
               variant="ghost"
@@ -379,6 +405,9 @@ export default function JobProcessingPage() {
               Back to Home
             </Button>
             <h1 className="text-2xl font-bold">NRGTech - Processing Status</h1>
+            <div className="ml-auto">
+              <ThemeToggle />
+            </div>
           </div>
         </header>
         <main className="container mx-auto p-4">
@@ -409,8 +438,8 @@ export default function JobProcessingPage() {
   // Job not found
   if (!job) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4">
+      <div className="min-h-screen bg-background text-foreground transition-colors">
+        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 text-white p-4">
           <div className="container mx-auto flex items-center gap-4">
             <Button
               variant="ghost"
@@ -422,6 +451,9 @@ export default function JobProcessingPage() {
               Back to Home
             </Button>
             <h1 className="text-2xl font-bold">NRGTech - Processing Status</h1>
+            <div className="ml-auto">
+              <ThemeToggle />
+            </div>
           </div>
         </header>
         <main className="container mx-auto p-4">
@@ -437,9 +469,9 @@ export default function JobProcessingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background text-foreground transition-colors">
       {/* Header */}
-      <header className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4">
+      <header className="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 text-white p-4">
         <div className="container mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button
@@ -453,52 +485,55 @@ export default function JobProcessingPage() {
             </Button>
             <div>
               <h1 className="text-2xl font-bold">Processing Status</h1>
-              <p className="text-blue-100 text-sm">Job ID: {jobId}</p>
+              <p className="text-blue-100 dark:text-blue-200 text-sm">Job ID: {jobId}</p>
             </div>
           </div>
           
-          <div className="text-right">
-            <div className="text-sm flex items-center gap-2">
-              Status: <Badge variant={
-                job.status === JobStatus.COMPLETED ? 'default' : 
-                job.status === JobStatus.FAILED ? 'destructive' : 
-                job.status === JobStatus.CANCELLED ? 'destructive' : 
-                'secondary'
-              }>
-                {job.status}
-              </Badge>
-              
-              {/* Cancel Button */}
-              {isJobCancellable(job) && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleCancelJob}
-                  disabled={isCancelling}
-                  className="ml-2"
-                >
-                  {isCancelling ? (
-                    <>
-                      <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin mr-1" />
-                      Cancelling...
-                    </>
-                  ) : (
-                    <>
-                      <StopCircle className="w-3 h-3 mr-1" />
-                      Cancel Job
-                    </>
-                  )}
-                </Button>
+          <div className="text-right flex items-center gap-4">
+            <div>
+              <div className="text-sm flex items-center gap-2">
+                Status: <Badge variant={
+                  job.status === JobStatus.COMPLETED ? 'default' : 
+                  job.status === JobStatus.FAILED ? 'destructive' : 
+                  job.status === JobStatus.CANCELLED ? 'destructive' : 
+                  'secondary'
+                }>
+                  {job.status}
+                </Badge>
+                
+                {/* Cancel Button */}
+                {isJobCancellable(job) && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleCancelJob}
+                    disabled={isCancelling}
+                    className="ml-2"
+                  >
+                    {isCancelling ? (
+                      <>
+                        <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin mr-1" />
+                        Cancelling...
+                      </>
+                    ) : (
+                      <>
+                        <StopCircle className="w-3 h-3 mr-1" />
+                        Cancel Job
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+              <div className="text-xs text-blue-100 dark:text-blue-200 mt-1">
+                Started: {formatDate(job.created_at)}
+              </div>
+              {job.completed_at && (
+                <div className="text-xs text-blue-100 dark:text-blue-200">
+                  {job.status === JobStatus.CANCELLED ? 'Cancelled' : 'Completed'}: {formatDate(job.completed_at)}
+                </div>
               )}
             </div>
-            <div className="text-xs text-blue-100 mt-1">
-              Started: {formatDate(job.created_at)}
-            </div>
-            {job.completed_at && (
-              <div className="text-xs text-blue-100">
-                {job.status === JobStatus.CANCELLED ? 'Cancelled' : 'Completed'}: {formatDate(job.completed_at)}
-              </div>
-            )}
+            <ThemeToggle />
           </div>
         </div>
       </header>
@@ -512,7 +547,7 @@ export default function JobProcessingPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   {job.status === JobStatus.CANCELLED ? (
-                    <X className="w-5 h-5 text-red-500" />
+                    <X className="w-5 h-5 text-red-500 dark:text-red-400" />
                   ) : (
                     <Clock className="w-5 h-5" />
                   )}
@@ -520,7 +555,7 @@ export default function JobProcessingPage() {
                 </CardTitle>
                 <div className="space-y-2">
                   <Progress value={overallProgress} className="h-3" />
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     {job.status === JobStatus.CANCELLED ? 'Job Cancelled' : `${overallProgress}% Complete`}
                   </p>
                 </div>
@@ -531,24 +566,24 @@ export default function JobProcessingPage() {
                     <div className="flex items-center gap-3">
                       <div className="relative">
                         {stage.status === 'completed' && (
-                          <CheckCircle className="w-6 h-6 text-green-500" />
+                          <CheckCircle className="w-6 h-6 text-green-500 dark:text-green-400" />
                         )}
                         {stage.status === 'active' && (
-                          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                          <div className="w-6 h-6 border-2 border-blue-500 dark:border-blue-400 border-t-transparent rounded-full animate-spin" />
                         )}
                         {stage.status === 'pending' && (
-                          <div className="w-6 h-6 border-2 border-gray-300 rounded-full" />
+                          <div className="w-6 h-6 border-2 border-border rounded-full" />
                         )}
                         {stage.status === 'error' && (
-                          <AlertCircle className="w-6 h-6 text-red-500" />
+                          <AlertCircle className="w-6 h-6 text-red-500 dark:text-red-400" />
                         )}
                         {stage.status === 'cancelled' && (
-                          <X className="w-6 h-6 text-red-500" />
+                          <X className="w-6 h-6 text-red-500 dark:text-red-400" />
                         )}
                       </div>
                       <div className="flex-1">
                         <div className="font-semibold text-sm">{stage.title}</div>
-                        <div className="text-xs text-gray-600">
+                        <div className="text-xs text-muted-foreground">
                           {stage.status === 'cancelled' ? 'Cancelled' : stage.description}
                         </div>
                       </div>
@@ -605,13 +640,13 @@ export default function JobProcessingPage() {
                   <div>
                     <Button
                       variant="default"
-                      className="w-full bg-green-600 hover:bg-green-700"
+                      className="w-full bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800"
                       onClick={() => job.detected_pdf_url && window.open(job.detected_pdf_url, '_blank')}
                     >
                       <Download className="w-4 h-4 mr-2" />
                       Download Detected PDF
                     </Button>
-                    <p className="text-xs text-gray-600 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       PDF with valve detections highlighted
                     </p>
                   </div>
@@ -628,7 +663,7 @@ export default function JobProcessingPage() {
                     <Download className="w-4 h-4 mr-2" />
                     Download Valve Size Report
                   </Button>
-                  <p className="text-xs text-gray-600 mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {areValveCountsAvailable(job) ? 'CSV report ready' : 
                      job.status === JobStatus.CANCELLED ? 'Report not available (job cancelled)' :
                      'Report will be available when processing completes'}
@@ -652,40 +687,6 @@ export default function JobProcessingPage() {
 
           {/* Main Content Area */}
           <div className="lg:col-span-2">
-            {/* Valve Counts Results */}
-            {areValveCountsAvailable(job) && job.result?.valve_counts && (
-              <Card className="mb-6">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                    Valve Detection Results
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    <div className="text-center p-3 bg-blue-50 rounded-lg border">
-                      <div className="text-2xl font-bold text-blue-600">
-                        {job.result.valve_counts.total_detections}
-                      </div>
-                      <div className="text-sm text-gray-600">Total Valves</div>
-                    </div>
-                    
-                    {Object.entries(job.result.valve_counts)
-                      .filter(([key]) => key !== 'total_detections')
-                      .map(([key, value]) => (
-                        <div key={key} className="text-center p-3 bg-gray-50 rounded-lg border">
-                          <div className="text-xl font-semibold">{value}</div>
-                          <div className="text-xs text-gray-600 uppercase">
-                            {key.replace('_', ' ').replace('valve', '').trim()}
-                          </div>
-                        </div>
-                      ))
-                    }
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
             {/* PDF Viewer */}
             <Card className="h-[600px]">
               <CardContent className="p-0 h-full">
@@ -700,7 +701,7 @@ export default function JobProcessingPage() {
                   </Worker>
                 ) : (
                   <div className="h-full flex items-center justify-center">
-                    <div className="text-center text-gray-500 p-4">
+                    <div className="text-center text-muted-foreground p-4">
                       {job.status === JobStatus.COMPLETED ? (
                         <>
                           <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
@@ -730,10 +731,44 @@ export default function JobProcessingPage() {
                         </>
                       )}
                     </div>
-                </div>
-                  )}
+                  </div>
+                )}
               </CardContent>
             </Card>
+
+            {/* Valve Counts Results */}
+            {areValveCountsAvailable(job) && job.result?.valve_counts && (
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-green-500 dark:text-green-400" />
+                    Valve Detection Results
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border">
+                      <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                        {job.result.valve_counts.total_detections}
+                      </div>
+                      <div className="text-sm text-muted-foreground">Total Valves</div>
+                    </div>
+                    
+                    {Object.entries(job.result.valve_counts)
+                      .filter(([key]) => key !== 'total_detections')
+                      .map(([key, value]) => (
+                        <div key={key} className="text-center p-3 bg-muted/50 rounded-lg border">
+                          <div className="text-xl font-semibold">{value}</div>
+                          <div className="text-xs text-muted-foreground uppercase">
+                            {key.replace('_', ' ').replace('valve', '').trim()}
+                          </div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </main>
