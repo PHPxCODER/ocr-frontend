@@ -15,7 +15,9 @@ import {
   FileText, 
   ArrowLeft,
   RefreshCw,
-  Home
+  Home,
+  X,
+  StopCircle
 } from 'lucide-react'
 import useSWR from 'swr'
 import { Viewer, Worker } from '@react-pdf-viewer/core'
@@ -30,7 +32,8 @@ enum JobStatus {
   PDF_PROCESSED = "pdf_processed",
   COUNTING = "counting",
   COMPLETED = "completed",
-  FAILED = "failed"
+  FAILED = "failed",
+  CANCELLED = "cancelled"
 }
 
 // API Response Types
@@ -68,12 +71,20 @@ interface JobResult {
   error?: string;
 }
 
+// Cancel Response Type
+interface CancelResponse {
+  job_id: string;
+  message: string;
+  previous_status: string;
+  cancelled_at: string;
+}
+
 // Processing Stage Info
 interface ProcessingStage {
   id: string;
   title: string;
   description: string;
-  status: 'pending' | 'active' | 'completed' | 'error';
+  status: 'pending' | 'active' | 'completed' | 'error' | 'cancelled';
   progress: number;
 }
 
@@ -95,8 +106,10 @@ const useJobStatus = (jobId: string, interval: number = 2000) => {
     fetcher,
     {
       refreshInterval: (data) => {
-        // Stop polling if job is completed or failed
-        if (data?.status === JobStatus.COMPLETED || data?.status === JobStatus.FAILED) {
+        // Stop polling if job is completed, failed, or cancelled
+        if (data?.status === JobStatus.COMPLETED || 
+            data?.status === JobStatus.FAILED || 
+            data?.status === JobStatus.CANCELLED) {
           return 0;
         }
         return interval;
@@ -114,6 +127,20 @@ const useJobStatus = (jobId: string, interval: number = 2000) => {
     error,
     refetch: mutate
   };
+};
+
+// Function to cancel a job
+const cancelJob = async (jobId: string): Promise<CancelResponse> => {
+  const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/cancel`, {
+    method: 'POST',
+  });
+  
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || `Cancel failed: ${response.statusText}`);
+  }
+  
+  return response.json();
 };
 
 // Helper function to download valve sizes as CSV
@@ -210,6 +237,17 @@ const getProcessingStages = (currentStatus: JobStatus): ProcessingStage[] => {
     case JobStatus.FAILED:
       stages[1].status = 'error';
       break;
+    case JobStatus.CANCELLED:
+      // Mark all stages as cancelled except upload
+      stages.slice(1).forEach(stage => {
+        if (stage.status === 'active') {
+          stage.status = 'cancelled';
+        } else if (stage.status === 'pending') {
+          stage.status = 'cancelled';
+          stage.progress = 0;
+        }
+      });
+      break;
     default:
       break;
   }
@@ -237,6 +275,13 @@ const areValveCountsAvailable = (job: JobResult | undefined): boolean => {
   return job.status === JobStatus.COMPLETED && !!job.result?.valve_counts;
 };
 
+// Check if job can be cancelled
+const isJobCancellable = (job: JobResult | undefined): boolean => {
+  if (!job) return false;
+  const cancellableStatuses = [JobStatus.PENDING, JobStatus.PROCESSING, JobStatus.PDF_PROCESSED, JobStatus.COUNTING];
+  return cancellableStatuses.includes(job.status);
+};
+
 // Format date helper
 const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleString();
@@ -248,6 +293,8 @@ export default function JobProcessingPage() {
   const jobId = params.slug as string;
   
   const [showDetectedPdf, setShowDetectedPdf] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   
   // Fetch job status
   const { job, isLoading, error, refetch } = useJobStatus(jobId);
@@ -267,6 +314,25 @@ export default function JobProcessingPage() {
       setShowDetectedPdf(true);
     }
   }, [job?.status, job?.detected_pdf_url, showDetectedPdf]);
+
+  // Handle job cancellation
+  const handleCancelJob = async () => {
+    if (!job || !isJobCancellable(job)) return;
+    
+    setIsCancelling(true);
+    setCancelError(null);
+    
+    try {
+      await cancelJob(job.job_id);
+      // Refetch job status to update UI
+      await refetch();
+    } catch (error) {
+      console.error('Error cancelling job:', error);
+      setCancelError(error instanceof Error ? error.message : 'Failed to cancel job');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   // Handle download valve size report
   const handleDownloadValveSizeReport = () => {
@@ -391,18 +457,45 @@ export default function JobProcessingPage() {
           </div>
           
           <div className="text-right">
-            <div className="text-sm">
-              Status: <Badge variant={job.status === JobStatus.COMPLETED ? 'default' : 
-                              job.status === JobStatus.FAILED ? 'destructive' : 'secondary'}>
+            <div className="text-sm flex items-center gap-2">
+              Status: <Badge variant={
+                job.status === JobStatus.COMPLETED ? 'default' : 
+                job.status === JobStatus.FAILED ? 'destructive' : 
+                job.status === JobStatus.CANCELLED ? 'destructive' : 
+                'secondary'
+              }>
                 {job.status}
               </Badge>
+              
+              {/* Cancel Button */}
+              {isJobCancellable(job) && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleCancelJob}
+                  disabled={isCancelling}
+                  className="ml-2"
+                >
+                  {isCancelling ? (
+                    <>
+                      <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin mr-1" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    <>
+                      <StopCircle className="w-3 h-3 mr-1" />
+                      Cancel Job
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
             <div className="text-xs text-blue-100 mt-1">
               Started: {formatDate(job.created_at)}
             </div>
             {job.completed_at && (
               <div className="text-xs text-blue-100">
-                Completed: {formatDate(job.completed_at)}
+                {job.status === JobStatus.CANCELLED ? 'Cancelled' : 'Completed'}: {formatDate(job.completed_at)}
               </div>
             )}
           </div>
@@ -417,12 +510,18 @@ export default function JobProcessingPage() {
             <Card className="mb-6">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Clock className="w-5 h-5" />
+                  {job.status === JobStatus.CANCELLED ? (
+                    <X className="w-5 h-5 text-red-500" />
+                  ) : (
+                    <Clock className="w-5 h-5" />
+                  )}
                   Processing Progress
                 </CardTitle>
                 <div className="space-y-2">
                   <Progress value={overallProgress} className="h-3" />
-                  <p className="text-sm text-gray-600">{overallProgress}% Complete</p>
+                  <p className="text-sm text-gray-600">
+                    {job.status === JobStatus.CANCELLED ? 'Job Cancelled' : `${overallProgress}% Complete`}
+                  </p>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -442,10 +541,15 @@ export default function JobProcessingPage() {
                         {stage.status === 'error' && (
                           <AlertCircle className="w-6 h-6 text-red-500" />
                         )}
+                        {stage.status === 'cancelled' && (
+                          <X className="w-6 h-6 text-red-500" />
+                        )}
                       </div>
                       <div className="flex-1">
                         <div className="font-semibold text-sm">{stage.title}</div>
-                        <div className="text-xs text-gray-600">{stage.description}</div>
+                        <div className="text-xs text-gray-600">
+                          {stage.status === 'cancelled' ? 'Cancelled' : stage.description}
+                        </div>
                       </div>
                     </div>
                     {stage.status === 'active' && (
@@ -463,6 +567,28 @@ export default function JobProcessingPage() {
                 <AlertDescription>
                   <strong>Processing Failed:</strong><br />
                   {job.error}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Cancelled Display */}
+            {job.status === JobStatus.CANCELLED && (
+              <Alert variant="destructive" className="mb-6">
+                <X className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Job Cancelled:</strong><br />
+                  {job.error || 'The job was cancelled before completion.'}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Cancel Error Display */}
+            {cancelError && (
+              <Alert variant="destructive" className="mb-6">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Cancel Failed:</strong><br />
+                  {cancelError}
                 </AlertDescription>
               </Alert>
             )}
@@ -502,7 +628,9 @@ export default function JobProcessingPage() {
                     Download Valve Size Report
                   </Button>
                   <p className="text-xs text-gray-600 mt-1">
-                    {areValveCountsAvailable(job) ? 'CSV report ready' : 'Report will be available when processing completes'}
+                    {areValveCountsAvailable(job) ? 'CSV report ready' : 
+                     job.status === JobStatus.CANCELLED ? 'Report not available (job cancelled)' :
+                     'Report will be available when processing completes'}
                   </p>
                 </div>
 
@@ -583,6 +711,15 @@ export default function JobProcessingPage() {
                           <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-400" />
                           <p className="text-lg">Processing Failed</p>
                           <p className="text-sm">Please check the error message and try uploading again.</p>
+                        </>
+                      ) : job.status === JobStatus.CANCELLED ? (
+                        <>
+                          <X className="w-16 h-16 mx-auto mb-4 text-red-400" />
+                          <p className="text-lg">Job Cancelled</p>
+                          <p className="text-sm">The processing was cancelled before completion.</p>
+                          {isDetectedPdfAvailable(job) && (
+                            <p className="text-sm mt-2">Partial results may be available for download above.</p>
+                          )}
                         </>
                       ) : (
                         <>
