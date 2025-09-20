@@ -74,20 +74,10 @@ export default function HomePage() {
   const router = useRouter();
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.includes('pdf')) {
-      setUploadError('Please upload a valid PDF file.');
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      return;
-    }
-
+  const processFile = async (file: File) => {
     setUploadError(null);
     setIsUploading(true);
     
@@ -106,6 +96,49 @@ export default function HomePage() {
       }
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.includes('pdf')) {
+      setUploadError('Please upload a valid PDF file.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    processFile(file);
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragOver(false);
+    
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      
+      if (!file.type.includes('pdf')) {
+        setUploadError('Please upload a valid PDF file.');
+        return;
+      }
+
+      // Process the file directly instead of creating a fake event
+      processFile(file);
     }
   };
 
@@ -157,7 +190,16 @@ export default function HomePage() {
             </CardHeader>
             <CardContent className="p-8">
               {/* Upload Area */}
-              <div className="border-2 border-dashed border-border hover:border-primary/50 dark:hover:border-primary/70 rounded-lg p-12 text-center transition-colors">
+              <div 
+                className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+                  isDragOver 
+                    ? 'border-primary bg-primary/5 dark:bg-primary/10' 
+                    : 'border-border hover:border-primary/50 dark:hover:border-primary/70'
+                }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
                 <input
                   ref={fileInputRef}
                   type="file"
