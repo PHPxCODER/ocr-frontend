@@ -2,32 +2,31 @@
 import React from 'react'
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useTheme } from 'next-themes'
+import { useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Progress } from '@/components/ui/progress'
 import { 
-  Download, 
-  CheckCircle, 
-  Clock, 
-  AlertCircle, 
-  FileText, 
-  ArrowLeft,
   RefreshCw,
+  AlertCircle,
+  FileText,
   Home,
   X,
-  StopCircle,
-  Moon,
-  Sun,
-  Monitor
+  StopCircle
 } from 'lucide-react'
 import useSWR from 'swr'
 import { Viewer, Worker } from '@react-pdf-viewer/core'
 import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout'
 import '@react-pdf-viewer/core/lib/styles/index.css'
 import '@react-pdf-viewer/default-layout/lib/styles/index.css'
+
+// Components
+import Header from '@/components/Header'
+import ProcessingStages from '@/components/ProcessingStages'
+import DownloadsSection from '@/components/DownloadsSection'
+import ValveResults from '@/components/ValveResults'
+import AuthPage from '@/components/AuthPage'
 
 // Job Status Enum matching backend
 enum JobStatus {
@@ -83,15 +82,6 @@ interface CancelResponse {
   cancelled_at: string;
 }
 
-// Processing Stage Info
-interface ProcessingStage {
-  id: string;
-  title: string;
-  description: string;
-  status: 'pending' | 'active' | 'completed' | 'error' | 'cancelled';
-  progress: number;
-}
-
 // API Configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
@@ -102,28 +92,6 @@ const fetcher = (url: string) => fetch(url).then((res) => {
   }
   return res.json();
 });
-
-// Theme Toggle Component
-function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
-  
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark')}
-      className="text-white hover:bg-white/10 transition-colors"
-    >
-      {theme === 'dark' ? (
-        <Moon className="h-4 w-4" />
-      ) : theme === 'light' ? (
-        <Sun className="h-4 w-4" />
-      ) : (
-        <Monitor className="h-4 w-4" />
-      )}
-    </Button>
-  );
-}
 
 // Custom hook for job status with error handling
 const useJobStatus = (jobId: string, interval: number = 2000) => {
@@ -169,124 +137,6 @@ const cancelJob = async (jobId: string): Promise<CancelResponse> => {
   return response.json();
 };
 
-// Helper function to download valve sizes as CSV
-const downloadValveSizeReport = (valveSizes: Array<{size_inches: string; valve_name: string; count: number}>, jobId: string) => {
-  const headers = ['size_inches', 'valve_name', 'count'];
-  const csvRows = [
-    headers.join(','),
-    ...valveSizes.map(valve => [
-      valve.size_inches,
-      valve.valve_name,
-      valve.count.toString()
-    ].join(','))
-  ];
-  
-  const csvContent = csvRows.join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  
-  if (link.download !== undefined) {
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `valve_size_report_${jobId}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
-};
-
-// Helper function to get processing stages with progress
-const getProcessingStages = (currentStatus: JobStatus): ProcessingStage[] => {
-  const stages: ProcessingStage[] = [
-    {
-      id: 'upload',
-      title: 'PDF Upload',
-      description: 'File uploaded and validated successfully',
-      status: 'completed',
-      progress: 100
-    },
-    {
-      id: 'processing',
-      title: 'PDF Processing',
-      description: 'Analyzing PDF structure and extracting pages',
-      status: 'pending',
-      progress: 0
-    },
-    {
-      id: 'detection',
-      title: 'Valve Detection',
-      description: 'AI models detecting and classifying valves',
-      status: 'pending',
-      progress: 0
-    },
-    {
-      id: 'counting',
-      title: 'Counting & Analysis',
-      description: 'Counting valves by type and generating reports',
-      status: 'pending',
-      progress: 0
-    }
-  ];
-
-  // Update stages based on current status
-  switch (currentStatus) {
-    case JobStatus.PENDING:
-      stages[1].status = 'active';
-      stages[1].progress = 25;
-      break;
-    case JobStatus.PROCESSING:
-      stages[1].status = 'active';
-      stages[1].progress = 75;
-      break;
-    case JobStatus.PDF_PROCESSED:
-      stages[1].status = 'completed';
-      stages[1].progress = 100;
-      stages[2].status = 'active';
-      stages[2].progress = 50;
-      break;
-    case JobStatus.COUNTING:
-      stages[1].status = 'completed';
-      stages[1].progress = 100;
-      stages[2].status = 'completed';
-      stages[2].progress = 100;
-      stages[3].status = 'active';
-      stages[3].progress = 75;
-      break;
-    case JobStatus.COMPLETED:
-      stages.forEach(stage => {
-        stage.status = 'completed';
-        stage.progress = 100;
-      });
-      break;
-    case JobStatus.FAILED:
-      stages[1].status = 'error';
-      break;
-    case JobStatus.CANCELLED:
-      // Mark all stages as cancelled except upload
-      stages.slice(1).forEach(stage => {
-        if (stage.status === 'active') {
-          stage.status = 'cancelled';
-        } else if (stage.status === 'pending') {
-          stage.status = 'cancelled';
-          stage.progress = 0;
-        }
-      });
-      break;
-    default:
-      break;
-  }
-
-  return stages;
-};
-
-// Calculate overall progress
-const calculateOverallProgress = (stages: ProcessingStage[]): number => {
-  const totalProgress = stages.reduce((sum, stage) => sum + stage.progress, 0);
-  return Math.round(totalProgress / stages.length);
-};
-
 // Helper functions for status checks
 const isDetectedPdfAvailable = (job: JobResult | undefined): boolean => {
   if (!job) return false;
@@ -313,9 +163,15 @@ const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleString();
 };
 
+// Helper function to capitalize status
+const capitalizeStatus = (status: string): string => {
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase().replace(/_/g, ' ');
+};
+
 export default function JobProcessingPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session, status } = useSession();
   const jobId = params.slug as string;
   
   const [showDetectedPdf, setShowDetectedPdf] = useState(false);
@@ -324,10 +180,6 @@ export default function JobProcessingPage() {
   
   // Fetch job status
   const { job, isLoading, error, refetch } = useJobStatus(jobId);
-  
-  // Get processing stages and overall progress
-  const processingStages = job ? getProcessingStages(job.status) : [];
-  const overallProgress = calculateOverallProgress(processingStages);
   
   // Initialize PDF viewer plugin
   const defaultLayoutPluginInstance = defaultLayoutPlugin({
@@ -339,8 +191,24 @@ export default function JobProcessingPage() {
     if (isDetectedPdfAvailable(job) && !showDetectedPdf) {
       setShowDetectedPdf(true);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.status, job?.detected_pdf_url, showDetectedPdf]);
+  }, [job, showDetectedPdf]);
+
+  // Show loading state while checking session
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-background text-foreground transition-colors flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!session) {
+    return <AuthPage />;
+  }
 
   // Handle job cancellation
   const handleCancelJob = async () => {
@@ -361,22 +229,15 @@ export default function JobProcessingPage() {
     }
   };
 
-  // Handle download valve size report
-  const handleDownloadValveSizeReport = () => {
-    if (job?.result?.valve_sizes && areValveCountsAvailable(job)) {
-      downloadValveSizeReport(job.result.valve_sizes, job.job_id);
-    }
-  };
-
   // Loading state
   if (isLoading && !job) {
     return (
       <div className="min-h-screen bg-background text-foreground transition-colors">
-        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 text-white p-4">
-          <div className="container mx-auto">
-            <h1 className="text-2xl font-bold">NRGTech - Processing Status</h1>
-          </div>
-        </header>
+        <Header 
+          showBackButton 
+          onBackClick={() => router.push('/')} 
+          title="Processing Status" 
+        />
         <main className="container mx-auto p-4">
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
@@ -393,23 +254,11 @@ export default function JobProcessingPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-background text-foreground transition-colors">
-        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 text-white p-4">
-          <div className="container mx-auto flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push('/')}
-              className="text-white hover:bg-white/10"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Home
-            </Button>
-            <h1 className="text-2xl font-bold">NRGTech - Processing Status</h1>
-            <div className="ml-auto">
-              <ThemeToggle />
-            </div>
-          </div>
-        </header>
+        <Header 
+          showBackButton 
+          onBackClick={() => router.push('/')} 
+          title="Processing Status" 
+        />
         <main className="container mx-auto p-4">
           <Alert variant="destructive" className="max-w-2xl mx-auto">
             <AlertCircle className="h-4 w-4" />
@@ -439,23 +288,11 @@ export default function JobProcessingPage() {
   if (!job) {
     return (
       <div className="min-h-screen bg-background text-foreground transition-colors">
-        <header className="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 text-white p-4">
-          <div className="container mx-auto flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push('/')}
-              className="text-white hover:bg-white/10"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Home
-            </Button>
-            <h1 className="text-2xl font-bold">NRGTech - Processing Status</h1>
-            <div className="ml-auto">
-              <ThemeToggle />
-            </div>
-          </div>
-        </header>
+        <Header 
+          showBackButton 
+          onBackClick={() => router.push('/')} 
+          title="Processing Status" 
+        />
         <main className="container mx-auto p-4">
           <Alert className="max-w-2xl mx-auto">
             <AlertCircle className="h-4 w-4" />
@@ -471,130 +308,71 @@ export default function JobProcessingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors">
       {/* Header */}
-      <header className="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 text-white p-4">
+      <Header 
+        showBackButton 
+        onBackClick={() => router.push('/')} 
+        title="Processing Status" 
+        subtitle={`Job ID: ${jobId}`} 
+      />
+
+      {/* Status Bar */}
+      <div className="bg-muted/30 border-b p-4">
         <div className="container mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push('/')}
-              className="text-white hover:bg-white/10"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Home
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold">Processing Status</h1>
-              <p className="text-blue-100 dark:text-blue-200 text-sm">Job ID: {jobId}</p>
+            <div className="text-sm flex items-center gap-2">
+              Status: <Badge variant={
+                job.status === JobStatus.COMPLETED ? 'default' : 
+                job.status === JobStatus.FAILED ? 'destructive' : 
+                job.status === JobStatus.CANCELLED ? 'destructive' : 
+                'secondary'
+              }>
+                {capitalizeStatus(job.status)}
+              </Badge>
+              
+              {/* Cancel Button */}
+              {isJobCancellable(job) && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleCancelJob}
+                  disabled={isCancelling}
+                  className="ml-2"
+                >
+                  {isCancelling ? (
+                    <>
+                      <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin mr-1" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    <>
+                      <StopCircle className="w-3 h-3 mr-1" />
+                      Cancel Job
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </div>
           
-          <div className="text-right flex items-center gap-4">
-            <div>
-              <div className="text-sm flex items-center gap-2">
-                Status: <Badge variant={
-                  job.status === JobStatus.COMPLETED ? 'default' : 
-                  job.status === JobStatus.FAILED ? 'destructive' : 
-                  job.status === JobStatus.CANCELLED ? 'destructive' : 
-                  'secondary'
-                }>
-                  {job.status}
-                </Badge>
-                
-                {/* Cancel Button */}
-                {isJobCancellable(job) && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleCancelJob}
-                    disabled={isCancelling}
-                    className="ml-2"
-                  >
-                    {isCancelling ? (
-                      <>
-                        <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin mr-1" />
-                        Cancelling...
-                      </>
-                    ) : (
-                      <>
-                        <StopCircle className="w-3 h-3 mr-1" />
-                        Cancel Job
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
-              <div className="text-xs text-blue-100 dark:text-blue-200 mt-1">
-                Started: {formatDate(job.created_at)}
-              </div>
-              {job.completed_at && (
-                <div className="text-xs text-blue-100 dark:text-blue-200">
-                  {job.status === JobStatus.CANCELLED ? 'Cancelled' : 'Completed'}: {formatDate(job.completed_at)}
-                </div>
-              )}
+          <div className="text-right">
+            <div className="text-xs text-muted-foreground">
+              Started: {formatDate(job.created_at)}
             </div>
-            <ThemeToggle />
+            {job.completed_at && (
+              <div className="text-xs text-muted-foreground">
+                {job.status === JobStatus.CANCELLED ? 'Cancelled' : 'Completed'}: {formatDate(job.completed_at)}
+              </div>
+            )}
           </div>
         </div>
-      </header>
+      </div>
 
       {/* Main Content */}
       <main className="container mx-auto p-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Processing Status Sidebar */}
           <div className="lg:col-span-1">
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  {job.status === JobStatus.CANCELLED ? (
-                    <X className="w-5 h-5 text-red-500 dark:text-red-400" />
-                  ) : (
-                    <Clock className="w-5 h-5" />
-                  )}
-                  Processing Progress
-                </CardTitle>
-                <div className="space-y-2">
-                  <Progress value={overallProgress} className="h-3" />
-                  <p className="text-sm text-muted-foreground">
-                    {job.status === JobStatus.CANCELLED ? 'Job Cancelled' : `${overallProgress}% Complete`}
-                  </p>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {processingStages.map((stage) => (
-                  <div key={stage.id} className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
-                        {stage.status === 'completed' && (
-                          <CheckCircle className="w-6 h-6 text-green-500 dark:text-green-400" />
-                        )}
-                        {stage.status === 'active' && (
-                          <div className="w-6 h-6 border-2 border-blue-500 dark:border-blue-400 border-t-transparent rounded-full animate-spin" />
-                        )}
-                        {stage.status === 'pending' && (
-                          <div className="w-6 h-6 border-2 border-border rounded-full" />
-                        )}
-                        {stage.status === 'error' && (
-                          <AlertCircle className="w-6 h-6 text-red-500 dark:text-red-400" />
-                        )}
-                        {stage.status === 'cancelled' && (
-                          <X className="w-6 h-6 text-red-500 dark:text-red-400" />
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-semibold text-sm">{stage.title}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {stage.status === 'cancelled' ? 'Cancelled' : stage.description}
-                        </div>
-                      </div>
-                    </div>
-                    {stage.status === 'active' && (
-                      <Progress value={stage.progress} className="h-2 ml-9" />
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+            <ProcessingStages currentStatus={job.status} />
 
             {/* Error Display */}
             {job.status === JobStatus.FAILED && job.error && (
@@ -629,66 +407,17 @@ export default function JobProcessingPage() {
               </Alert>
             )}
 
-            {/* Downloads Section */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Downloads</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Detected PDF Download */}
-                {isDetectedPdfAvailable(job) && (
-                  <div>
-                    <Button
-                      variant="default"
-                      className="w-full bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800"
-                      onClick={() => job.detected_pdf_url && window.open(job.detected_pdf_url, '_blank')}
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Download Detected PDF
-                    </Button>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      PDF with valve detections highlighted
-                    </p>
-                  </div>
-                )}
-
-                {/* Valve Size Report */}
-                <div>
-                  <Button 
-                    variant="outline" 
-                    className="w-full"
-                    disabled={!areValveCountsAvailable(job)}
-                    onClick={handleDownloadValveSizeReport}
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Valve Size Report
-                  </Button>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {areValveCountsAvailable(job) ? 'CSV report ready' : 
-                     job.status === JobStatus.CANCELLED ? 'Report not available (job cancelled)' :
-                     'Report will be available when processing completes'}
-                  </p>
-                </div>
-
-                {/* Show Detected PDF Toggle */}
-                {isDetectedPdfAvailable(job) && (
-                  <Button
-                    variant="secondary"
-                    className="w-full"
-                    onClick={() => setShowDetectedPdf(!showDetectedPdf)}
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    {showDetectedPdf ? 'Show Original PDF' : 'Show Detected PDF'}
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+            <DownloadsSection 
+              job={job}
+              onTogglePdfView={() => setShowDetectedPdf(!showDetectedPdf)}
+              showingDetectedPdf={showDetectedPdf}
+            />
           </div>
 
           {/* Main Content Area */}
           <div className="lg:col-span-2">
             {/* PDF Viewer */}
-            <Card className="h-[600px]">
+            <Card className="h-[600px] mb-6">
               <CardContent className="p-0 h-full">
                 {(showDetectedPdf && job.detected_pdf_url) ? (
                   <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.js">
@@ -738,36 +467,7 @@ export default function JobProcessingPage() {
 
             {/* Valve Counts Results */}
             {areValveCountsAvailable(job) && job.result?.valve_counts && (
-              <Card className="mb-6">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-green-500 dark:text-green-400" />
-                    Valve Detection Results
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border">
-                      <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                        {job.result.valve_counts.total_detections}
-                      </div>
-                      <div className="text-sm text-muted-foreground">Total Valves</div>
-                    </div>
-                    
-                    {Object.entries(job.result.valve_counts)
-                      .filter(([key]) => key !== 'total_detections')
-                      .map(([key, value]) => (
-                        <div key={key} className="text-center p-3 bg-muted/50 rounded-lg border">
-                          <div className="text-xl font-semibold">{value}</div>
-                          <div className="text-xs text-muted-foreground uppercase">
-                            {key.replace('_', ' ').replace('valve', '').trim()}
-                          </div>
-                        </div>
-                      ))
-                    }
-                  </div>
-                </CardContent>
-              </Card>
+              <ValveResults valveCounts={job.result.valve_counts} />
             )}
           </div>
         </div>
