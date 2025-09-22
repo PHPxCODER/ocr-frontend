@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+import SessionWrapper from "@/components/SessionWrapper";
 import { ThemeProvider } from "@/components/theme-provider"
 import './globals.css'
 
@@ -18,6 +19,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
+      <SessionWrapper>
       <ThemeProvider
             attribute="class"
             defaultTheme="system"
@@ -25,6 +27,7 @@ export default function RootLayout({
           >
         {children}
         </ThemeProvider>
+      </SessionWrapper>
       </body>
     </html>
   )
