@@ -77,15 +77,7 @@ export default function Header({ showBackButton = false, onBackClick, title, sub
           </div>
         )}
 
-        <div className="flex items-center gap-4">
-          {!showBackButton && (
-            <ul className="flex space-x-4 lg:space-x-6 text-sm lg:text-lg">
-              <li><a href="#" className="hover:text-blue-200 dark:hover:text-blue-300 transition-colors">Home</a></li>
-              <li><a href="#" className="hover:text-blue-200 dark:hover:text-blue-300 transition-colors">About</a></li>
-              <li><a href="#" className="hover:text-blue-200 dark:hover:text-blue-300 transition-colors">Contact</a></li>
-            </ul>
-          )}
-          
+        <div className="flex items-center gap-4">          
           {session?.user && (
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 text-sm">

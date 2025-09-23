@@ -1,4 +1,4 @@
-'use client'
+"use client"
 import React from 'react'
 import { signIn } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
@@ -100,7 +100,7 @@ export default function AuthPage() {
       <footer className="bg-muted/50 dark:bg-muted/20 text-muted-foreground py-8 mt-16 border-t">
         <div className="container mx-auto px-4 text-center">
           <p>
-            © 2024 NRGTech. All rights reserved. Automated P&ID Parts Count Solution.
+            © 2025 NRGTech. All rights reserved. Automated P&ID Parts Count Solution.
           </p>
         </div>
       </footer>
