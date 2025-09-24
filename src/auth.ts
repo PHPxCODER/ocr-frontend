@@ -1,7 +1,27 @@
 import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import { Adapter } from "next-auth/adapters";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+
+function CustomPrismaAdapter(p: PrismaClient): Adapter {
+  const origin = PrismaAdapter(p);
+  return {
+    ...origin,
+    deleteSession: async (sessionToken: string) => {
+      try {
+        return await p.session.delete({ where: { sessionToken } });
+      } catch (e) {
+        console.error("Failed to delete session", e);
+        return null;
+      }
+    },
+  } as unknown as Adapter;
+}
 
 export const OPTIONS: NextAuthOptions = {
+    adapter: CustomPrismaAdapter(prisma),
     secret: process.env.NEXTAUTH_SECRET,
 
     providers: [
@@ -10,7 +30,7 @@ export const OPTIONS: NextAuthOptions = {
         clientSecret: process.env.AUTH_GOOGLE_SECRET as string,
         allowDangerousEmailAccountLinking: true,
         httpOptions: {
-          timeout: 30000, // e.g. 30s
+          timeout: 60000, // e.g. 30s
         },
       }),
     ],
@@ -33,8 +53,12 @@ export const OPTIONS: NextAuthOptions = {
       },
   
       async session({ session, token }) {
+        // Fetch the latest user data from the database using Prisma
+        const user = await prisma.user.findUnique({
+          where: { id: token.id },
+        });
         // put token values into session.user
-        if (session.user) {
+        if (user) {
           session.user.id = token.id as string;
           session.user.email = token.email as string;
           session.user.name = token.name as string;
