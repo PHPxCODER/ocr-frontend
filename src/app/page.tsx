@@ -1,10 +1,8 @@
 'use client'
 import React from 'react'
 import { useRouter } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import Header from '@/components/Header'
 import UploadSection from '@/components/UploadSection'
-import AuthPage from '@/components/AuthPage'
 
 // Job Status Enum matching backend
 enum JobStatus {
@@ -26,24 +24,6 @@ interface JobResponse {
 
 export default function HomePage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
-
-  // Show loading state while checking session
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen bg-background text-foreground transition-colors flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show login page if not authenticated
-  if (!session) {
-    return <AuthPage />;
-  }
 
   const handleUploadSuccess = (jobResponse: JobResponse) => {
     // Redirect to processing page with job ID

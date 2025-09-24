@@ -2,9 +2,11 @@
 import React from 'react'
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Upload, AlertCircle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 // Job Status Enum matching backend
 enum JobStatus {
@@ -49,12 +51,19 @@ const uploadFile = async (file: File): Promise<JobResponse> => {
 };
 
 export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
+  const { data: session } = useSession();
+  const router = useRouter();
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFile = async (file: File) => {
+    if(!session){
+      setUploadError('You must be signed in to upload files.');
+      router.push('/auth')
+      return;
+    }
     setUploadError(null);
     setIsUploading(true);
     
