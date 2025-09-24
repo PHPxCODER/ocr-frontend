@@ -1,4 +1,3 @@
-'use client'
 import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -174,7 +173,9 @@ export default function ProcessingStages({ currentStatus }: ProcessingStagesProp
               </div>
             </div>
             {stage.status === 'active' && (
-              <Progress value={stage.progress} className="h-2 ml-9" />
+              <div className="ml-9 pr-4">
+                <Progress value={stage.progress} className="h-2 w-full" />
+              </div>
             )}
           </div>
         ))}
