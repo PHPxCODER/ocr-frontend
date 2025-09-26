@@ -153,7 +153,7 @@ export default function ProcessingStages({ currentStatus }: ProcessingStagesProp
                   <CheckCircle className="w-6 h-6 text-green-500 dark:text-green-400" />
                 )}
                 {stage.status === 'active' && (
-                  <div className="w-6 h-6 border-2 border-blue-500 dark:border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 )}
                 {stage.status === 'pending' && (
                   <div className="w-6 h-6 border-2 border-border rounded-full" />
