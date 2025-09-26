@@ -71,7 +71,7 @@ export default function HomePage() {
               
               <div className="text-center">
                 <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <div className="w-8 h-8 border-2 border-blue-600 dark:border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
                 </div>
                 <h3 className="text-xl font-semibold mb-2">2. Analyze</h3>
                 <p className="text-muted-foreground">
