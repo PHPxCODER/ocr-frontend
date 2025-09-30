@@ -2,8 +2,17 @@
 import React from 'react'
 import { useSession, signOut } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useTheme } from 'next-themes'
-import { Moon, Sun, Monitor, LogOut, User } from 'lucide-react'
+import { Moon, Sun, Monitor, LogOut } from 'lucide-react'
 
 // Theme Toggle Component
 function ThemeToggle() {
@@ -39,6 +48,17 @@ export default function Header({ showBackButton = false, onBackClick, title, sub
 
   const handleLogout = () => {
     signOut({ callbackUrl: '/' });
+  };
+
+  // Get user initials for avatar fallback
+  const getUserInitials = (name?: string | null) => {
+    if (!name) return 'U';
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
@@ -77,26 +97,44 @@ export default function Header({ showBackButton = false, onBackClick, title, sub
           </div>
         )}
 
-        <div className="flex items-center gap-4">          
-          {session?.user && (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 text-sm">
-                <User className="w-4 h-4" />
-                <span className="hidden md:inline">{session.user.name}</span>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                className="text-white hover:bg-white/10 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden md:inline ml-1">Logout</span>
-              </Button>
-            </div>
-          )}
-          
+        <div className="flex items-center gap-3">
           <ThemeToggle />
+          
+          {session?.user && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  className="relative h-8 w-8 rounded-full hover:bg-white/10 transition-colors p-0"
+                >
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage 
+                      src={session.user.image || undefined} 
+                      alt={session.user.name || 'User avatar'} 
+                    />
+                    <AvatarFallback className="bg-blue-500 text-white text-xs">
+                      {getUserInitials(session.user.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56" align="end" forceMount>
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{session.user.name}</p>
+                    <p className="text-xs leading-none text-muted-foreground">
+                      {session.user.email}
+                    </p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Log out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </nav>
     </header>
