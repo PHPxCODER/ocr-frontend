@@ -1,7 +1,7 @@
 import React from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Download, FileText } from 'lucide-react'
+import { Download } from 'lucide-react'
 
 // Job Status Enum matching backend
 enum JobStatus {
@@ -95,7 +95,7 @@ const downloadValveSizeReport = (valveSizes: Array<{size_inches: string; valve_n
   }
 };
 
-export default function DownloadsSection({ job, onTogglePdfView, showingDetectedPdf }: DownloadsSectionProps) {
+export default function DownloadsSection({ job }: DownloadsSectionProps) {
   const handleDownloadValveSizeReport = () => {
     if (job.result?.valve_sizes && areValveCountsAvailable(job)) {
       downloadValveSizeReport(job.result.valve_sizes, job.job_id);
@@ -113,7 +113,7 @@ export default function DownloadsSection({ job, onTogglePdfView, showingDetected
           <div>
             <Button
               variant="default"
-              className="w-full bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800"
+              className="w-full bg-green-600 hover:bg-green-700"
               onClick={() => job.detected_pdf_url && window.open(job.detected_pdf_url, '_blank')}
             >
               <Download className="w-4 h-4 mr-2" />
@@ -142,18 +142,6 @@ export default function DownloadsSection({ job, onTogglePdfView, showingDetected
              'Report will be available when processing completes'}
           </p>
         </div>
-
-        {/* Show Detected PDF Toggle */}
-        {isDetectedPdfAvailable(job) && (
-          <Button
-            variant="secondary"
-            className="w-full"
-            onClick={onTogglePdfView}
-          >
-            <FileText className="w-4 h-4 mr-2" />
-            {showingDetectedPdf ? 'Show Original PDF' : 'Show Detected PDF'}
-          </Button>
-        )}
       </CardContent>
     </Card>
   );
